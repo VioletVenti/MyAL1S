@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # PydanticAI model string; provider-agnostic, default latest Claude.
     llm_model: str = "anthropic:claude-opus-4-8"
 
+    # Optional custom LLM endpoint + key, for a proxy / relay / gateway.
+    # When unset, the provider's standard endpoint and env var are used.
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+
     # Path to the pku3b binary built with `--features mcp`.
     pku3b_bin: str = "../pku3b/target/release/pku3b"
 
