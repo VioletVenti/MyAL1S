@@ -1,0 +1,86 @@
+# ============================================================================
+#  MyAL1S .gitignore
+#  THIS REPOSITORY IS PUBLIC. The design (see Plan/) stores PKU IAAA
+#  credentials as plaintext in cfg.toml and session cookies in ua.json during
+#  the MVP. NONE of that may ever be committed. The blocks below are the
+#  security boundary — edit with care.
+# ============================================================================
+
+# ---- Credentials & secrets (NEVER COMMIT) ---------------------------------
+cfg.toml
+**/cfg.toml
+ua.json
+**/ua.json
+.env
+.env.*
+!.env.example
+*.secret
+secrets.*
+*.key
+*.pem
+*.pfx
+credentials.*
+**/credentials*
+*_token
+*.token
+
+# ---- Local data / persistence (SQLite per design decision #12) ------------
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/data/
+/var/
+
+# ---- Python backend (FastAPI + PydanticAI) --------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.coverage
+htmlcov/
+.python-version
+
+# ---- Web frontend (React / Vue / Svelte) ----------------------------------
+node_modules/
+.pnpm-store/
+.npm/
+dist/
+build/
+.vite/
+.svelte-kit/
+.next/
+.nuxt/
+.cache/
+*.local
+.turbo/
+
+# ---- Rust (pku3b is a submodule with its own .gitignore; safety net) ------
+target/
+**/*.rs.bk
+
+# ---- Logs & temp ----------------------------------------------------------
+*.log
+logs/
+tmp/
+.tmp/
+
+# ---- OS / editor ----------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
