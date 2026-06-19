@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .mcp_gateway import McpGateway
-from .routes import chat, deterministic
+from .routes import chat, deterministic, session
 from .settings import get_settings
 
 
@@ -39,6 +39,7 @@ app.add_middleware(
 
 app.include_router(deterministic.router)
 app.include_router(chat.router)
+app.include_router(session.router)
 
 
 @app.get("/api/health")

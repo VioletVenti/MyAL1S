@@ -16,15 +16,40 @@ subprocess management, the MCP handshake, and result unwrapping.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from contextlib import AsyncExitStack
+from pathlib import Path
 from typing import Any
 
+import certifi
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.mcp import MCPServerStdio
 
 from .llm import build_model
 from .settings import Settings
+
+_CERTS_DIR = Path(__file__).resolve().parent.parent / "certs"
+
+
+def _ca_bundle_path() -> str | None:
+    """Combine certifi's CA bundle with the vendored extra CAs in `certs/` and
+    return a path for SSL_CERT_FILE. pku3b uses native-tls/OpenSSL, which honours
+    SSL_CERT_FILE; course.pku.edu.cn ships an incomplete chain, so the AlphaSSL
+    intermediate in `certs/` must be trusted. Returns None when there are no
+    extras (the subprocess then uses its default trust store)."""
+    extras = sorted(_CERTS_DIR.glob("*.pem"))
+    if not extras:
+        return None
+    fd, path = tempfile.mkstemp(prefix="myal1s-ca-", suffix=".pem")
+    with os.fdopen(fd, "wb") as out:
+        out.write(Path(certifi.where()).read_bytes())
+        for extra in extras:
+            out.write(b"\n")
+            out.write(extra.read_bytes())
+    return path
+
 
 SYSTEM_PROMPT = """\
 你是「MyAL1S」——北京大学校园信息终端助手。
@@ -34,7 +59,9 @@ SYSTEM_PROMPT = """\
 - 任何具体数据都必须通过调用工具获取, 绝不凭空编造、猜测或记忆。
 - 工具返回的 JSON 信封里 status 字段:
   - "ok": 使用 data 字段作答。
-  - "needs_otp": 告诉用户先在终端运行 `pku3b ct` 完成一次登录以刷新会话, 然后重试。
+  - "needs_otp": 提示用户点击页面顶部的「连接教学网」输入手机令牌 (OTP) 登录一次,
+    之后即可正常查询。**不要**自己调用 login 工具, 也不要编造 OTP——OTP 只能由用户提供。
+  - "error": 简要说明出错原因, 建议用户重试或先登录。
 - 用中文、简洁地聚焦用户的问题作答; 涉及作业 DDL 时按时间排序并提示紧迫的项。
 - 当前为只读阶段: 你没有交作业 / 选课 / 发帖等写操作能力。
 """
@@ -47,7 +74,16 @@ class McpGateway:
             args += ["--config", settings.pku3b_config]
         args.append("mcp")
 
-        self._server = MCPServerStdio(settings.pku3b_bin, args=args)
+        # pku3b connects to course.pku.edu.cn, whose TLS chain is incomplete;
+        # point its native-tls/OpenSSL at a bundle that includes the missing
+        # intermediate. Inherit the rest of the environment (HOME is needed for
+        # pku3b's config/cache dirs).
+        env = dict(os.environ)
+        self._ca_bundle = _ca_bundle_path()
+        if self._ca_bundle:
+            env["SSL_CERT_FILE"] = self._ca_bundle
+
+        self._server = MCPServerStdio(settings.pku3b_bin, args=args, env=env)
         # NOTE: MCPServerStdio is deprecated in favour of MCPToolset in
         # pydantic-ai v2; pyproject pins <2 so this stays valid for P0.
         self._agent: Agent = Agent(
@@ -67,6 +103,13 @@ class McpGateway:
         if self._stack is not None:
             await self._stack.aclose()
             self._stack = None
+        if self._ca_bundle:
+            try:
+                os.unlink(self._ca_bundle)
+            except OSError:
+                pass
+            self._ca_bundle = None
+
 
     @property
     def agent(self) -> Agent:

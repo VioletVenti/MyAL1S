@@ -12,7 +12,11 @@ from app.settings import Settings
 
 def test_default_returns_model_string() -> None:
     # No base_url / api_key -> let pydantic-ai infer from env (unchanged).
-    model = build_model(Settings(llm_model="anthropic:claude-opus-4-8"))
+    # Null both explicitly so an ambient .env (e.g. a configured relay) doesn't
+    # bleed into this test.
+    model = build_model(
+        Settings(llm_model="anthropic:claude-opus-4-8", llm_base_url=None, llm_api_key=None)
+    )
     assert model == "anthropic:claude-opus-4-8"
 
 
