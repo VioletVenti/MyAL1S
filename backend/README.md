@@ -38,6 +38,20 @@ cp .env.example .env        # then edit: ANTHROPIC_API_KEY=...
 `.env` (gitignored) holds your `ANTHROPIC_API_KEY` and, optionally, overrides for
 `MYAL1S_LLM_MODEL` and `MYAL1S_PKU3B_BIN`. See `.env.example`.
 
+### Custom LLM endpoint (proxy / relay / gateway)
+
+To route the LLM through a custom endpoint (e.g. a Claude relay), set
+`MYAL1S_LLM_BASE_URL` and `MYAL1S_LLM_API_KEY`. The provider is chosen by the
+`MYAL1S_LLM_MODEL` prefix:
+
+- **Anthropic-compatible** relay (`/v1/messages`):
+  `MYAL1S_LLM_MODEL=anthropic:claude-opus-4-8`
+- **OpenAI-compatible** relay (`/v1/chat/completions`):
+  `MYAL1S_LLM_MODEL=openai:claude-3-5-sonnet`
+
+Leave both unset to use the provider's official endpoint and the standard
+`ANTHROPIC_API_KEY`. Implemented in `app/llm.py`.
+
 ## Run
 
 ```bash

@@ -23,6 +23,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.mcp import MCPServerStdio
 
+from .llm import build_model
 from .settings import Settings
 
 SYSTEM_PROMPT = """\
@@ -50,7 +51,7 @@ class McpGateway:
         # NOTE: MCPServerStdio is deprecated in favour of MCPToolset in
         # pydantic-ai v2; pyproject pins <2 so this stays valid for P0.
         self._agent: Agent = Agent(
-            settings.llm_model,
+            build_model(settings),
             system_prompt=SYSTEM_PROMPT,
             toolsets=[self._server],
         )
