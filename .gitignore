@@ -58,6 +58,7 @@ node_modules/
 dist/
 build/
 .vite/
+*.tsbuildinfo
 .svelte-kit/
 .next/
 .nuxt/
