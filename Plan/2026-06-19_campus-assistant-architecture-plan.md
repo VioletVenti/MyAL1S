@@ -75,13 +75,13 @@
 - **A1.** 新增 `src/cli/cmd_mcp.rs` + `Commands::Mcp` 子命令；`pku3b mcp` 进入 stdio JSON-RPC 循环。
 - **A2.** 手写最小 MCP 实现（无 rmcp）：
   - `initialize` 握手、`tools/list`、`tools/call`、错误对象。
-  - JSON-RPC over stdin/stdout，逐行或按 Content-Length 分帧（建议 LSP 风格 Content-Length）。
-  - 在 compio 运行时内读 stdin（`compio::fs`/异步 stdin）。
+  - JSON-RPC over stdin/stdout，**newline 分帧**（一行一条消息，无内嵌换行）。〔P0 修订：原写"建议 LSP 风格 Content-Length"有误——MCP stdio transport spec (2025-06-18) 强制 newline 分帧，非 Content-Length。〕
+  - 在 compio 运行时内读 stdin：`compio::fs::stdin()` 已可用（compio-fs 已编入，`fs::stdout()` 同源已在用）；用 `BufReader` + `AsyncBufRead::fill_buf/consume` 逐行读。
 - **A3.** 工具登记表：把 `api::Blackboard` / `Course` / `CourseAssignment` / `Portal` / `Syllabus` 现有方法
   包装成 MCP 工具，输入/输出用 serde JSON。复用现有结构体（`GradeRecord` 等）。
-- **A4.** 工具元数据：每个工具标注 `readOnly` vs `sideEffect`（供后端权限矩阵识别）。
+- **A4.** 工具元数据：每个工具标注 `readOnly` vs `sideEffect`（供后端权限矩阵识别）。〔P0 修订：`submit_file`（blackboard.rs）是 `api::*` 中**唯一**写方法，其余皆只读；P0 只暴露只读工具。〕
 - **A5.** 登录态：沿用 `cookie_restore_path` → `ua.json`；首次/失效时触发 IAAA 登录。
-  **OTP**：MCP 工具需暴露"需要 OTP"信号（结构化 error/中间态），不能在子进程里 `inquire` 阻塞。
+  **OTP**：MCP 工具需暴露"需要 OTP"信号（结构化 error/中间态），不能在子进程里 `inquire` 阻塞。〔P0 修订：阻塞的 `inquire` 只在 **CLI 层**（cli/mod.rs），`api::*` 登录本就 prompt-free → MCP 直接复用 API、外加非阻塞 OTP gate 返回 `NeedsOtp`，**零改既有代码**。〕
 - **A6.**（可选）保留 binary CLI 不动，`mcp` 只是新增子命令——对现有功能零破坏。
 
 ### B. 新增爬虫 (Rust / compio, 在 pku3b 内)
@@ -142,7 +142,23 @@
 
 - [ ] 北大树洞的 IAAA appid 与接口结构（需抓包调研）。
 - [ ] 课程评测/其他站点的认证与数据结构。
-- [ ] MCP stdio 分帧方式（Content-Length vs 行分隔）最终定型。
-- [ ] 前端框架三选一（React / Vue / Svelte）——未在 grilling 中收敛。
+- [x] ~~MCP stdio 分帧方式（Content-Length vs 行分隔）最终定型。~~ → **RESOLVED (P0): newline 分帧**（spec 2025-06-18，已对 PydanticAI MCP client 验证互通）。
+- [x] ~~前端框架三选一（React / Vue / Svelte）。~~ → **RESOLVED (P0): Vite + React + TS**。
 - [ ] 大事记"变动检测"的触发方式（定时轮询 vs 打开时拉取）。
 - [ ] 权限矩阵的操作类别粒度（按工具 vs 按语义分组）。
+
+---
+
+## 8. 实施期修订记录 (P0)
+
+P0 竖切实施（见 `Plan/2026-06-19_p0-vertical-slice-implementation-plan.md`）中发现并已回写到本文：
+
+| 处 | 原本设想 | 实际（已订正） |
+|----|----------|----------------|
+| §4 A2 分帧 | 建议 LSP 风格 Content-Length | **newline-delimited JSON-RPC**（MCP stdio spec 强制；Content-Length 是错的） |
+| §4 A2 stdin | 担心"无现成 crate" | `compio::fs::stdin()` + `BufReader`/`AsyncBufRead` 直接可用 |
+| §4 A5 OTP | 担心子进程无法弹窗 | 阻塞 `inquire` 只在 CLI 层；`api::*` 本就 prompt-free，复用即可、零改既有代码 |
+| §4 A4 写操作 | 待标注 sideEffect | `submit_file` 是唯一写方法；P0 只暴露只读工具，不暴露它 |
+| §7 TBD #3 / 前端 | 未定 | 已定：newline 分帧 / Vite+React+TS |
+
+P0 落地物：`pku3b mcp`（3 个只读工具，merged via pku3b#1）+ `backend/`（FastAPI+PydanticAI，4 pytest 通过）+ `frontend/`（Vite React，build 通过）。整条 compio-stdio ↔ Python ↔ agent 管道已用真实 `pku3b` 二进制验证（list_tools / call_tool 互通）。
