@@ -51,3 +51,24 @@ export async function sendChat(message: string): Promise<string> {
   const data = (await res.json()) as { reply: string };
   return data.reply;
 }
+
+export interface LoginResult {
+  portal: boolean;
+  blackboard: boolean;
+}
+
+// One-time login: send a user-provided OTP to warm the session. After this,
+// dashboard/chat calls reuse the session (no per-call OTP) until it expires.
+export async function login(otp: string): Promise<Envelope<LoginResult>> {
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ otp }),
+    });
+    if (!res.ok) return { status: "error", message: `HTTP ${res.status}` };
+    return (await res.json()) as Envelope<LoginResult>;
+  } catch (e) {
+    return { status: "error", message: String(e) };
+  }
+}
