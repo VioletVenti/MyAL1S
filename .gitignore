@@ -24,6 +24,10 @@ credentials.*
 *_token
 *.token
 
+# Exception: vendored PUBLIC CA certs (not secrets) — pku3b needs the
+# AlphaSSL intermediate that course.pku.edu.cn omits from its chain.
+!backend/certs/*.pem
+
 # ---- Local data / persistence (SQLite per design decision #12) ------------
 *.sqlite
 *.sqlite3
