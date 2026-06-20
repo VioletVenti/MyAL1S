@@ -37,4 +37,11 @@
 - **改用 `remTrustChk`（"记住常用设备"）**：`iaaa_oauth_login` 加 `remTrustChk=true`；`login` 改为 portal 花一次 OTP（信任设备）→ blackboard 空 OTP 登录；新增纯 GET 的 `blackboard_warm()` 避免冷启动空 OTP 尝试（防 E21 锁定）；删 `iaaa_sso_login`/`bb_sso_login`/`try_blackboard_sso`/`extract_js_redirect`。
 - 验证：fmt✓ / build✓ / test 17 通过 / clippy 零新增 / release 重编含 remTrustChk。**待用户 1 次 OTP 线上验证**（关键未知：信任能否同会话内立刻对第二个 app 生效）。
 
+## 假阳性修复（第一次 trusted-device 测试后）
+- **现象**：login 回 `{portal:true, blackboard:true}`，但 `/api/assignments` 回 `needs_otp` → blackboard 是假连。
+- **根因（我引入的 bug）**：① `blackboard_warm` 用 `bb_homepage`，course.pku 对未登录返回 200 游客页 → 假阳性 true；② 假阳性短路了 trusted 登录 → **remTrustChk 路径从未真正执行过**；③ `Client::blackboard` 内部预检同样假阳性会跳过 bb_login。
+- **修复**：`blackboard_courses_ok`（真 `get_courses` 校验）替掉 `bb_homepage` warm 检查；`try_blackboard` 对空 OTP 也**强制** `bb_login`（绕过预检）。这才是**首个真正测试 remTrustChk 的构建**。
+- 验证：fmt✓/build✓/test 17 通过/clippy 零新增/release 重编。子模块 `50f1b68`。**待用户再测一次（谨慎，防 E21）**。
+
+
 
