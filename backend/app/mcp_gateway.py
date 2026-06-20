@@ -82,6 +82,9 @@ class McpGateway:
         self._ca_bundle = _ca_bundle_path()
         if self._ca_bundle:
             env["SSL_CERT_FILE"] = self._ca_bundle
+        # Surface pku3b's login/session decisions in the backend log (stderr is
+        # forwarded). Override via RUST_LOG in the environment if desired.
+        env.setdefault("RUST_LOG", "pku3b=info")
 
         self._server = MCPServerStdio(settings.pku3b_bin, args=args, env=env)
         # NOTE: MCPServerStdio is deprecated in favour of MCPToolset in
