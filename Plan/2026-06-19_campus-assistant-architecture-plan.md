@@ -82,6 +82,7 @@
 - **A4.** 工具元数据：每个工具标注 `readOnly` vs `sideEffect`（供后端权限矩阵识别）。〔P0 修订：`submit_file`（blackboard.rs）是 `api::*` 中**唯一**写方法，其余皆只读；P0 只暴露只读工具。〕
 - **A5.** 登录态：沿用 `cookie_restore_path` → `ua.json`；首次/失效时触发 IAAA 登录。
   **OTP**：MCP 工具需暴露"需要 OTP"信号（结构化 error/中间态），不能在子进程里 `inquire` 阻塞。〔P0 修订：阻塞的 `inquire` 只在 **CLI 层**（cli/mod.rs），`api::*` 登录本就 prompt-free → MCP 直接复用 API、外加非阻塞 OTP gate 返回 `NeedsOtp`，**零改既有代码**。〕
+  〔2026-06-20 更新（已实现）：**一次 OTP 双连**——`login(otp)` 把 OTP 花在门户登录、并经 IAAA `remTrustChk=true` 信任本设备，教学网随后空 OTP 登录、以 `get_courses` 校验。证伪了 oauth.jsp SSO 方案。详见 `quality_reports/plans/zesty-growing-clarke.md`。〕
 - **A6.**（可选）保留 binary CLI 不动，`mcp` 只是新增子命令——对现有功能零破坏。
 
 ### B. 新增爬虫 (Rust / compio, 在 pku3b 内)

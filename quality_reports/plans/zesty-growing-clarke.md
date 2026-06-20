@@ -1,6 +1,6 @@
 # 计划：一次 OTP 完成登录（IAAA SSO 免第二次手机令牌）
 
-**Status:** PIVOTED — oauth.jsp SSO 坐实走不通，已改用"记住常用设备"(remTrustChk)，待用户线上验证
+**Status:** ✅ COMPLETED — 线上验证通过：一次 OTP 经 `remTrustChk`(信任设备) 双连 portal+blackboard（oauth.jsp SSO 方案证伪后改用此法）
 **Date:** 2026-06-20
 **Branch（子模块 pku3b）:** `experiment/iaaa-sso`（已存在，含未提交草稿）
 **Branch（MyAL1S 主仓）:** `feat/otp-once-sso`（待建）
@@ -136,3 +136,17 @@ Ok(())
 - 关键未知：信任能否**同会话内立刻**对第二个 app 生效（也可能只对下次/下个进程生效；若如此，第二次冷启动可能零 OTP）。
 - 验证细节：`cargo fmt`✓ / `build --features mcp`✓ / `test` 17 通过(0 失败) / `clippy` 零新增 / release 已重编含 `remTrustChk`。
 - 失败 → 按用户决定回 main。
+
+---
+
+## 最终结论（COMPLETED）
+
+**线上验证通过：一次 OTP 双连。** portal 花一次 OTP 登录并经 `remTrustChk` 信任设备 → blackboard 空 OTP 登录成功；`/api/assignments` 返回真数据（非假阳性）。
+
+走过的弯路（保留供后人）：
+1. **oauth.jsp SSO（证伪）**：抓 PKU `OAuthLogin.js` 确认 oauth.jsp 是 JS 登录页、每次都带 OTP 发 `oauthlogin.do`，无免-OTP 会话捷径。
+2. **首版 remTrustChk（假阳性）**：`blackboard_warm` 用 `bb_homepage`，对未登录返回 200 游客页 → 误报已连、且短路了信任登录。
+3. **修复（成）**：`blackboard_courses_ok`(真 `get_courses` 校验) + `try_blackboard` 对空 OTP 也强制 `bb_login`（绕过假阳性预检）。
+
+最终改动：`iaaa_oauth_login` 加 `remTrustChk=true`；`login` 编排 portal-OTP→trusted-blackboard；新增 `blackboard_courses_ok`；删 oauth.jsp 死代码。
+提交：子模块 `50f1b68`（合并到 master）、MyAL1S `feat/otp-once-sso`（合并到 main）。文档已同步（README / docs/{architecture,mcp-protocol,development} / backend/README）。
