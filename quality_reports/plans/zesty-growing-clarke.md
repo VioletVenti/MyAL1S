@@ -1,6 +1,6 @@
 # 计划：一次 OTP 完成登录（IAAA SSO 免第二次手机令牌）
 
-**Status:** APPROVED — 实施中
+**Status:** PIVOTED — oauth.jsp SSO 坐实走不通，已改用"记住常用设备"(remTrustChk)，待用户线上验证
 **Date:** 2026-06-20
 **Branch（子模块 pku3b）:** `experiment/iaaa-sso`（已存在，含未提交草稿）
 **Branch（MyAL1S 主仓）:** `feat/otp-once-sso`（待建）
@@ -119,3 +119,20 @@ Ok(())
 - **IAAA 可能根本不经 `oauth.jsp` 做免 OTP 的 SSO**（需其它 cookie，或对每服务强制 OTP）→ 分支失败 → 按约定弃用回 main。诚实化的 `iaaa_sso_login` + `[sso]` 日志使其**可诊断**。
 - **相对 Location** 经 `convert_uri` 可能被错误补成 `course.pku.edu.cn`；故成功信号用**与主机无关的 `token=`** 判定，日志里 `[sso] hop` 主机可佐证。
 - **JS 重定向 HTML 形态多样**：正则可能需按真实 IAAA 页面微调；纯函数单测 + `[sso]` 日志让迭代廉价。
+
+---
+
+## PIVOT（2026-06-20，线上验证后）
+
+**oauth.jsp SSO 方案坐实走不通。** 线上一次-OTP 测试日志：portal 登录成功后，`GET oauth.jsp?appID=blackboard` 返回 `status=200 / 0 跳 / saw_token=false`。抓取 PKU 公开的 `oauth.jsp` + `OAuthLogin.js` 源码确认：oauth.jsp 是 JS 登录页（`onload=focusName()`，默认渲染表单），登录 JS **每次都把完整凭据（含 otpCode）POST 给 `oauthlogin.do`**，**不存在"已登录免 OTP 换 token"的客户端会话捷径**。故原计划机制对 PKU IAAA 不成立。
+
+**改用"记住常用设备"(`remTrustChk`)** —— `OAuthLogin.js` 里 `oauthlogin.do` 的唯一减 OTP 机制。新方案：
+- `iaaa_oauth_login` 表单加 `("remTrustChk", "true")`（与网页端勾选"记住常用设备"一致，仅多一字段；密码仍明文，IAAA 接受）。
+- `login` 编排：`portal_warm`/`blackboard_warm`(纯 GET) 复用检查 → 冷则 portal 花一次 OTP（顺带信任设备）→ `try_blackboard(None)` 空 OTP 登录（靠信任 cookie 免 OTP）→ portal 本就热时才把 fresh OTP 直接花在 blackboard。
+- 新增 `blackboard_warm()`（纯 `bb_homepage` GET，**不触发登录**）→ 避免冷启动做必然失败的空 OTP `oauthlogin.do`，防止反复测试触发 IAAA E21 锁定。
+- 删除死代码：`iaaa_sso_login` / `bb_sso_login` / `try_blackboard_sso` / `IAAA_OAUTH_AUTHORIZE` / `extract_js_redirect`(+3 单测)。
+
+**待验证（用户，1 次 OTP）**：冷启动 `rm -f ~/.cache/pku3b/ua.json` → 只输一次 OTP → 是否 `{portal:true, blackboard:true}`。看日志 `[mcp] login: blackboard via trusted device (no OTP) = true/false`。
+- 关键未知：信任能否**同会话内立刻**对第二个 app 生效（也可能只对下次/下个进程生效；若如此，第二次冷启动可能零 OTP）。
+- 验证细节：`cargo fmt`✓ / `build --features mcp`✓ / `test` 17 通过(0 失败) / `clippy` 零新增 / release 已重编含 `remTrustChk`。
+- 失败 → 按用户决定回 main。

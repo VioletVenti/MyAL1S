@@ -32,3 +32,9 @@
 - clippy 3 个 `Arc` 警告全在未触碰的 `src/cli/cmd_*.rs`，diff 新增 0 处 Arc。
 - 设计微调：纯函数落点改到 `low_level.rs`（与 `extract_redirect_url` 同homes，更自然/可复用），非计划里写的 iaaa.rs。
 
+## PIVOT（线上验证后）
+- **oauth.jsp SSO 坐实走不通**：日志显示热会话后 `GET oauth.jsp?appID=blackboard` = `200 / 0 跳 / saw_token=false`；抓 PKU 公开 `OAuthLogin.js` 确认 oauth.jsp 是 JS 登录页、每次都带 OTP 发 `oauthlogin.do`，无免 OTP 会话捷径。
+- **改用 `remTrustChk`（"记住常用设备"）**：`iaaa_oauth_login` 加 `remTrustChk=true`；`login` 改为 portal 花一次 OTP（信任设备）→ blackboard 空 OTP 登录；新增纯 GET 的 `blackboard_warm()` 避免冷启动空 OTP 尝试（防 E21 锁定）；删 `iaaa_sso_login`/`bb_sso_login`/`try_blackboard_sso`/`extract_js_redirect`。
+- 验证：fmt✓ / build✓ / test 17 通过 / clippy 零新增 / release 重编含 remTrustChk。**待用户 1 次 OTP 线上验证**（关键未知：信任能否同会话内立刻对第二个 app 生效）。
+
+
