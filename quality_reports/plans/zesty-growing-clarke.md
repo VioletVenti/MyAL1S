@@ -58,7 +58,7 @@ Ok(())
 ### 内部 seam（可单测的纯函数）
 - `fn extract_js_redirect(body: &str) -> Option<String>`：正则抓 `(?:window|document|top).location(.href)? = '…'`。**已有先例**：`blackboard.rs::bb_course_content_file_uri` 用 `document.location = '(.*?)';` 抓 URL。可单测（"接受输入、返回结果"）。
 - token 判定内联 `url.contains("token=")`（必要时也抽成纯函数）。
-> 这是"内部 seam / 接口即测试面"：网络路径按项目惯例不进单测（见 `Plan/2026-06-19_p0-vertical-slice-implementation-plan.md`），但纯解析逻辑进单测。
+> 这是"内部 seam / 接口即测试面"：网络路径按项目惯例不进单测（登录/取数等网络路径不进单测，只测纯函数；见 `docs/development.md` 测试一节），但纯解析逻辑进单测。
 
 ### 编排 seam：`ToolRegistry::login(otp)`（`src/mcp/tools.rs`）— 基本沿用草稿
 隐藏"Portal 花 OTP、Blackboard 走 SSO"的决策；后端/前端只调一次。冷启动顺序：`portal_warm()` → `try_blackboard_sso()`（诚实化后冷会话快速返回 false，不再做无谓的 `get_courses` 验证）→ 提供 OTP 则 `login_portal(otp)` 热身 IAAA → 再 `try_blackboard_sso()`（免第二次 OTP）。`try_blackboard_sso` 仍以 `auth::login_blackboard(None)` + `get_courses(true)` 真验证（防假会话）。

@@ -92,5 +92,5 @@ why pku3b is a *separate MCP server subprocess*, not a linked library.
 ## What P0 deliberately omits
 
 Write tools / permission matrix / OTP UI round-trip (P2), SQLite persistence
-(P1), external forums (P3), credential encryption (P4), streaming chat. See
-`Plan/2026-06-19_campus-assistant-architecture-plan.md` for the roadmap.
+(P1), external forums (P3), credential encryption (P4), streaming chat — the
+post-P0 roadmap.

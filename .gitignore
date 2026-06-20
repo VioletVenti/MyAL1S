@@ -1,9 +1,9 @@
 # ============================================================================
 #  MyAL1S .gitignore
-#  THIS REPOSITORY IS PUBLIC. The design (see Plan/) stores PKU IAAA
-#  credentials as plaintext in cfg.toml and session cookies in ua.json during
-#  the MVP. NONE of that may ever be committed. The blocks below are the
-#  security boundary — edit with care.
+#  THIS REPOSITORY IS PUBLIC. During the MVP the project stores PKU IAAA
+#  credentials as plaintext in cfg.toml and session cookies in ua.json. NONE of
+#  that may ever be committed. The blocks below are the security boundary —
+#  edit with care.
 # ============================================================================
 
 # ---- Credentials & secrets (NEVER COMMIT) ---------------------------------
@@ -73,6 +73,10 @@ build/
 # ---- Rust (pku3b is a submodule with its own .gitignore; safety net) ------
 target/
 **/*.rs.bk
+
+# ---- Local planning notes -------------------------------------------------
+# Plan/ holds local working/design notes, kept out of the public repo.
+Plan/
 
 # ---- Logs & temp ----------------------------------------------------------
 *.log
