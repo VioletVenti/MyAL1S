@@ -19,10 +19,16 @@ function LoginBar({ onConnected }: { onConnected: () => void }) {
     setBusy(false);
     setOtp("");
     if (env.status === "ok") {
-      const where = [env.data.portal && "课表", env.data.blackboard && "作业/成绩"]
-        .filter(Boolean)
-        .join(" + ");
-      setMsg({ kind: "ok", text: `已连接（${where || "会话"}）✓` });
+      const { portal, blackboard } = env.data;
+      if (portal && blackboard) {
+        setMsg({ kind: "ok", text: "已全部连接（课表 + 作业/成绩）✓" });
+      } else if (portal) {
+        setMsg({ kind: "info", text: "课表已连接 ✓ 作业/成绩请再输一次新令牌 (OTP) 登录。" });
+      } else if (blackboard) {
+        setMsg({ kind: "info", text: "作业/成绩已连接 ✓ 课表请再输一次新令牌 (OTP)。" });
+      } else {
+        setMsg({ kind: "err", text: "未连接，请重试。" });
+      }
       onConnected();
     } else if (env.status === "needs_otp") {
       setMsg({ kind: "info", text: "请输入手机令牌 (OTP)" });
