@@ -42,7 +42,7 @@ both holding the same envelope:
 
 ```jsonc
 { "status": "ok",        "data": { /* per-tool payload above */ } }
-{ "status": "needs_otp", "mobile_mask": "135****1234", "hint": "run `pku3b ct` once…" }
+{ "status": "needs_otp", "mobile_mask": "135****1234", "hint": "log in once with an OTP…" }
 ```
 
 `needs_otp` is **not** an error (`isError: false`) — it is a normal result the
@@ -56,3 +56,14 @@ Login is **prompt-free**: it never blocks on a terminal. If an OTP is required
 and unavailable, tools return `needs_otp` rather than hanging. Config is read
 lazily, so `initialize` and `tools/list` work before the user has configured
 anything.
+
+### `login` tool — one OTP for both services
+
+`login` (the only non-read-only tool) takes `{ otp: string }` and returns
+`{ status:"ok", data:{ portal: bool, blackboard: bool } }` (or `needs_otp` when
+called with no OTP and not already connected). A **single** OTP connects both
+services: it is spent on the portal login, which also sends IAAA's
+`remTrustChk=true` to mark the device trusted; Blackboard then logs in with an
+empty OTP (no second prompt) and is verified by listing courses. The trusted
+device + warm `ua.json` mean later runs usually need no OTP at all. The
+deterministic data tools above reuse this session, so they normally omit `otp`.

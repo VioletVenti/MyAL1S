@@ -20,7 +20,8 @@ git submodule update --init --recursive
 # 1) Build the MCP server (the backend spawns it)
 cd pku3b && cargo build --release --features mcp
 ./target/release/pku3b init      # student id / password (once)
-./target/release/pku3b ct         # one login to warm ua.json (avoids OTP in P0)
+# Log in via the frontend login bar (one OTP — see below); or warm ua.json from
+# the CLI with: ./target/release/pku3b ct
 
 # 2) Backend
 cd backend && python3 -m venv .venv && source .venv/bin/activate
@@ -34,6 +35,10 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 
 Then open http://localhost:5173 — the dashboard renders deterministically; the
 chat box drives the agent.
+
+**Logging in:** enter your phone OTP **once** in the top login bar. It is spent
+on the portal and marks the device trusted (`remTrustChk`), so Blackboard
+connects with no second OTP; the session persists in `ua.json` for later runs.
 
 ## Tests
 

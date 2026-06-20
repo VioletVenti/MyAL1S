@@ -40,7 +40,7 @@ enforced structurally: `routes/deterministic.py` imports neither the agent nor
 | # | Seam | Where | Interface | Hides |
 |---|------|-------|-----------|-------|
 | 1 | **Tool registry** | `pku3b/src/mcp/tools.rs` | `list_mcp()`, `call(name, args)` | all pku3b `api::*` orchestration, serialization, the assignment crawl |
-| 2 | **Prompt-free auth** | `pku3b/src/mcp/auth.rs` | `login_*() -> LoginOutcome::{Ready, NeedsOtp}` | cookie reuse, IAAA OAuth, OTP detection — returns `NeedsOtp` as **data**, never blocks |
+| 2 | **Prompt-free auth** | `pku3b/src/mcp/auth.rs` + `tools.rs::login` | `login_*() -> LoginOutcome::{Ready, NeedsOtp}`; `login(otp)` | cookie reuse, IAAA OAuth, OTP detection (returns `NeedsOtp` as **data**, never blocks), and the **one-OTP** orchestration (see below) |
 | 3 | **Transport** | `pku3b/src/mcp/transport.rs` | `serve(registry)` | newline JSON-RPC framing + method routing; a thin adapter with no domain logic |
 | 4 | **McpGateway** | `backend/app/mcp_gateway.py` | `call_tool(name, args)`, `agent` | the `pku3b mcp` subprocess lifecycle, MCP handshake, result unwrapping |
 
@@ -60,13 +60,23 @@ envelope back to the browser. No tokens spent.
 `POST /api/chat` → `agent.run(message)` → the LLM decides which MCP tool(s) to
 call (same catalog) → synthesizes a Chinese answer → `{reply}`.
 
+## Login: one OTP for both services
+
+`login(otp)` (`tools.rs`) spends the single OTP on the **portal**; that login
+also sends IAAA's `remTrustChk=true` (`iaaa_oauth_login`), marking the device
+trusted in the shared cookie jar. **Blackboard** then logs in with an *empty*
+OTP and is verified by listing courses (`blackboard_courses_ok` — a real
+`get_courses`, not a `bb_homepage` GET, which 200s on an unauthenticated guest
+page). The trusted-device cookie persists in `ua.json`, so later runs reuse the
+session — often with no OTP at all.
+
 ## The result envelope
 
 Every tool returns one of:
 
 ```jsonc
 { "status": "ok",        "data": { /* payload */ } }
-{ "status": "needs_otp", "mobile_mask": "135****1234", "hint": "run `pku3b ct`…" }
+{ "status": "needs_otp", "mobile_mask": "135****1234", "hint": "log in once with an OTP…" }
 ```
 
 The gateway adds a third for the deterministic path when a tool reports `isError`

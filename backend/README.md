@@ -20,12 +20,14 @@ app/
    ```bash
    (cd ../pku3b && cargo build --release --features mcp)
    ```
-2. **Configure pku3b credentials and warm the session** (so the agent isn't
-   asked for an OTP it can't answer in P0):
+2. **Configure pku3b credentials**:
    ```bash
    ../pku3b/target/release/pku3b init     # set student id / password
-   ../pku3b/target/release/pku3b ct        # one login to populate ua.json
    ```
+   Then log in **once** from the frontend login bar with an OTP — it is spent on
+   the portal and marks the device trusted (`remTrustChk`), so Blackboard needs
+   no second OTP and the session persists in `ua.json`. (CLI alternative to warm
+   the session: `../pku3b/target/release/pku3b ct`.)
 
 ## Setup
 
