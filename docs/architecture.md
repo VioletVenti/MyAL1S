@@ -10,22 +10,42 @@ the one invariant that must never break.
 │   Dashboard (deterministic)        ChatBox (agent)         │
 └───────┬───────────────────────────────────┬───────────────┘
         │ GET /api/course-table…             │ POST /api/chat
+        │ GET /api/todo|calendar|stars…      │ (model picker, history)
         │ (no LLM)                           │
 ┌───────▼───────────────────────────────────▼───────────────┐
 │ FastAPI backend (backend/)                                 │
 │   routes/deterministic.py          routes/chat.py          │
-│        │ gateway.call_tool(...)         │ gateway.agent.run │
-│        └──────────────┬─────────────────┘                  │
-│                  McpGateway (Seam 4)                       │
-│         one MCPServerStdio, shared by both paths           │
+│   routes/dashboard.py ──┐             │ gateway.agent.run  │
+│        │                │             │ (message_history)  │
+│        │ gateway.call_tool             └────────┬──────────┤
+│        │                │                      │          │
+│        │          Composer (Seam 6)            │          │
+│        │           join + diff + week-math      │          │
+│        │                │                      │          │
+│        └──────────────┬─┴──────────────────────┤          │
+│                  McpGateway (Seam 4)          │          │
+│         one MCPServerStdio, shared by all paths│          │
+│                        │                      │          │
+│                   Store (Seam 5) ◀────────────┘          │
+│         SQLite: stars / custom items / seen-ids /         │
+│         conversations + messages                          │
 └──────────────────────┬─────────────────────────────────────┘
                        │ newline JSON-RPC 2.0 over stdio
 ┌──────────────────────▼─────────────────────────────────────┐
 │ pku3b mcp  (pku3b/src/mcp/, Rust + compio)                 │
 │   transport (Seam 3) → ToolRegistry (Seam 1) → auth (Seam 2)│
-│   tools: get_course_table · list_assignments · get_grades  │
+│   tools: course_table · assignments · grades ·             │
+│          announcements · materials · videos · login        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> P1 added the **Store** (Seam 5) and the **Composer** (Seam 6) plus the
+> `routes/dashboard.py` deterministic path. The Composer joins live MCP-tool
+> data with persisted state (stars / custom items / seen-ids) into the 待办 /
+> weekly-calendar / 新到通知 shapes — still never through the LLM. The Store
+> also persists chat conversations + the pydantic-ai message slices so threads
+> can be reopened exactly (that path *does* touch the agent, in `routes/chat.py`
+> only).
 
 ## The invariant
 
@@ -43,6 +63,8 @@ enforced structurally: `routes/deterministic.py` imports neither the agent nor
 | 2 | **Prompt-free auth** | `pku3b/src/mcp/auth.rs` + `tools.rs::login` | `login_*() -> LoginOutcome::{Ready, NeedsOtp}`; `login(otp)` | cookie reuse, IAAA OAuth, OTP detection (returns `NeedsOtp` as **data**, never blocks), and the **one-OTP** orchestration (see below) |
 | 3 | **Transport** | `pku3b/src/mcp/transport.rs` | `serve(registry)` | newline JSON-RPC framing + method routing; a thin adapter with no domain logic |
 | 4 | **McpGateway** | `backend/app/mcp_gateway.py` | `call_tool(name, args)`, `agent` | the `pku3b mcp` subprocess lifecycle, MCP handshake, result unwrapping |
+| 5 | **Store** (P1) | `backend/app/store.py` | grouped methods: stars / custom-items / seen-ids / conversations | the entire SQLite lifecycle (aiosqlite connection, schema init, all SQL + row mapping, pydantic-ai message serialization) |
+| 6 | **Composer** (P1) | `backend/app/composer.py` | `todo()`, `week(iso_week)`, `new_notices()`, `mark_seen()` | the multi-source join: merging live MCP-tool data with Store state into the dashboard shapes; seen-id diffing; ISO-week date-range filtering |
 
 Why these are *real* seams (not speculative): each has two adapters across it.
 Seam 1 is driven by the stdio transport **and** by in-process unit tests (and
@@ -58,7 +80,20 @@ envelope back to the browser. No tokens spent.
 
 **Agent (chat):**
 `POST /api/chat` → `agent.run(message)` → the LLM decides which MCP tool(s) to
-call (same catalog) → synthesizes a Chinese answer → `{reply}`.
+call (same catalog) → synthesizes a Chinese answer → `{reply}`. P1: `model`
+overrides the agent's default (picker); `conversation_id` loads stored history
+(`message_history=`) and the new turn is persisted; the reply carries a
+`trace` of tool calls/results ("思考可见").
+
+**Dashboard (deterministic, P1):**
+`GET /api/todo` → `composer.todo()` merges Store stars + custom items (no live
+crawl). `GET /api/calendar?week=` → `composer.week()` fetches the course table
+via `gateway.call_tool` and overlays the starred/custom items whose date falls
+in that ISO week. `GET /api/new-notices` → `composer.new_notices()` diffs live
+assignment/announcement ids against the Store's seen-id watermark; `POST
+/api/new-notices/mark-seen` merges the current ids in. None of these touch the
+LLM — `routes/dashboard.py` and `composer.py` import neither the agent nor
+`pydantic_ai` (a structural test asserts it).
 
 ## Login: one OTP for both services
 
@@ -93,4 +128,5 @@ why pku3b is a *separate MCP server subprocess*, not a linked library.
 
 Write tools / permission matrix / OTP UI round-trip (P2), SQLite persistence
 (P1), external forums (P3), credential encryption (P4), streaming chat — the
-post-P0 roadmap.
+post-P0 roadmap. (P1 has since added the Store + Composer + dashboard routes;
+the rest stands.)

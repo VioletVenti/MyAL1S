@@ -13,6 +13,9 @@ dependencies = [
     "pydantic-ai-slim[anthropic,openai,mcp]>=1.0,<2",
     "pydantic-settings>=2.5",
     "python-dotenv>=1.0",
+    # P1 persistence (stars / custom items / seen-ids / conversations) — a single
+    # embedded SQLite file; async-native, composes with FastAPI's loop.
+    "aiosqlite>=0.20",
 ]
 
 [project.optional-dependencies]

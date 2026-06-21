@@ -87,10 +87,33 @@ automatically.
 5. **Expose it to the dashboard** *(only if deterministic)* — add a fetcher in
    `frontend/src/api.ts`, a panel in `Dashboard.tsx`, and a route in
    `backend/app/routes/deterministic.py`. The agent needs **no** change — it
-   discovers new tools via `tools/list`.
+   discovers new tools via `tools/list`. If the panel needs to join live data
+   with persisted state (stars / custom items / seen-ids), put that join in the
+   **Composer** (`backend/app/composer.py`) and add a thin route in
+   `routes/dashboard.py` — both stay LLM-free (see "Store / Composer" below).
 
 That's the whole loop. The registry is the single source of tool metadata; the
 transport and the agent are generic over it.
+
+## Store / Composer (P1)
+
+P1 added two deep modules for persistence + deterministic composition. Future
+contributors should know where each kind of logic lives:
+
+- **`backend/app/store.py`** (Seam 5) — all SQLite. Stars, custom to-do items,
+  seen-ids, and chat conversations+messages. To add a new persisted domain, add
+  a table to `_SCHEMA` (CREATE TABLE IF NOT EXISTS — no Alembic; single-user
+  local DB) and a grouped method on `Store`. The Store knows nothing about live
+  teaching-network data.
+- **`backend/app/composer.py`** (Seam 6) — joins live tools with the Store into
+  the dashboard shapes (`todo`, `week`, `new_notices`, `mark_seen`). Put new
+  multi-source composition logic here, NOT in route handlers. It calls the
+  gateway via `call_tool` only — never the agent.
+- **`backend/app/routes/dashboard.py`** — thin deterministic adapters over
+  Composer/Store. Like `routes/deterministic.py`, it imports no agent / no
+  `pydantic_ai` (a structural test enforces this).
+
+The lifespan (`main.py`) owns one Store connection for the app's lifetime.
 
 ## Git / submodule workflow
 
