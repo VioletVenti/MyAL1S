@@ -39,3 +39,19 @@ not hypothesising further until I have the real error.
 - Deleted `~/.cache/pku3b/ua.json` (real cookie jar) to force cold path — it was
   regenerated on the next successful login. No lasting effect.
 - A backend (uvicorn) may be running on :8000 from the repro attempts.
+
+## Side quest — venv broken (blocks bringing up the backend)
+User hit the README bootstrap: `.venv/bin/pip: cannot execute: required file
+not found`. Root cause: the venv was created when the project dir was named
+**`MyAgent`**; every script's shebang points at
+`/workplace/.../MyAgent/backend/.venv/bin/python3` (old name), which no longer
+exists (project is now `MyAL1S`). venvs are not portable across renames.
+Fix: `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate &&
+pip install -e ".[dev]"`. Awaiting user OK to rebuild. (Note: `.venv/bin/python`
+still runs — it's a real ELF binary, no shebang — which is why earlier sessions
+could start uvicorn via `python -m uvicorn` while `pip` was broken.)
+
+## Status
+Two open threads, both blocked on the user: (1) paste the 500 traceback;
+(2) OK to rebuild the venv.
+
