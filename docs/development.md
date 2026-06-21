@@ -50,9 +50,17 @@ cd pku3b && cargo test --features mcp -- --skip test_sb_login
 # Python (spawns the real pku3b mcp; skips if the binary isn't built)
 cd backend && pytest
 
-# Frontend type-check + build
-cd frontend && npm run build
+# Frontend type-check + build, and unit/render tests (vitest + jsdom)
+cd frontend && npm run build   # tsc --noEmit + vite build
+cd frontend && npm test        # vitest: format.ts unit tests + <App/> render tests
 ```
+
+The frontend test suite (`tests/`) guards the **blank-page bug class**: a render
+crash that `tsc`/`vite build` can't catch. `format.test.ts` locks the display
+layer (wall-clock preserved, date-only never renders `00:00`, blob parsed, total
+fns never throw); `App.test.tsx` mounts the real `<App/>` with `fetch` stubbed to
+static fixtures (`tests/fixtures.ts`) and asserts both views render + that the
+`ErrorBoundary` contains a crash rather than blanking the page.
 
 Quick stdio smoke of the MCP server (no credentials needed):
 

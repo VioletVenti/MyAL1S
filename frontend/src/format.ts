@@ -63,6 +63,9 @@ interface WallDate {
   d: number;
   h: number;
   mi: number;
+  /** Did the source string actually carry a time component? A date-only input
+   *  ("2026-06-27" / "2026年6月27日") leaves this false so we don't render 00:00. */
+  hasTime: boolean;
 }
 
 function parseWall(raw: string): WallDate | null {
@@ -78,16 +81,19 @@ function parseWall(raw: string): WallDate | null {
       d: +iso[3],
       h: iso[4] ? +iso[4] : 0,
       mi: iso[5] ? +iso[5] : 0,
+      hasTime: iso[4] !== undefined,
     };
   }
-  // Chinese: 2026年6月27日 [, 上午|下午]H[:m]
+  // Chinese: 2026年6月27日 星期六 上午11:59. An optional weekday (星期X / 周X)
+  // may sit between the date and the time; skip it, then capture 上午/下午.
+  // (A naive [^0-9]* would eat 下/午 and drop the AM/PM adjustment.)
   const cn = raw.match(
-    /(\d{4})年(\d{1,2})月(\d{1,2})日(?:[^0-9]*(上午|下午)?\s*(\d{1,2})(?::(\d{1,2}))?)?/,
+    /(\d{4})年(\d{1,2})月(\d{1,2})日(?:\s*(?:星期.|周.)?\s*(上午|下午)?\s*(\d{1,2})(?::(\d{1,2}))?)?/,
   );
   if (cn) {
     let h = cn[5] ? +cn[5] : 0;
     if (cn[4] === "下午" && h < 12) h += 12;
-    return { y: +cn[1], mo: +cn[2], d: +cn[3], h, mi: cn[6] ? +cn[6] : 0 };
+    return { y: +cn[1], mo: +cn[2], d: +cn[3], h, mi: cn[6] ? +cn[6] : 0, hasTime: cn[5] !== undefined };
   }
   return null;
 }
@@ -101,8 +107,10 @@ function wallWeekday(w: WallDate): string {
   return WD[dt.getUTCDay()];
 }
 
-/** Format any date-ish string to a compact form. `withTime` adds HH:mm. Keeps
- *  the source's wall-clock time (no tz conversion). */
+/** Format any date-ish string to a compact form. `withTime=true` appends HH:mm
+ *  ONLY when the source actually carried a time component — a date-only input
+ *  ("2026-06-27") never renders as "00:00". Keeps the source's wall-clock time
+ *  (no tz conversion). */
 export function fmtDate(raw: string | null | undefined, withTime = false): string {
   if (!raw) return "";
   const w = parseWall(raw);
@@ -111,17 +119,10 @@ export function fmtDate(raw: string | null | undefined, withTime = false): strin
     return raw.replace(/发布时间[:：]\s*/i, "").trim().slice(0, 16);
   }
   const base = `${w.mo}/${w.d} ${wallWeekday(w)}`;
-  if (!withTime) return base;
+  if (!(withTime && w.hasTime)) return base;
   const hh = String(w.h).padStart(2, "0");
   const mm = String(w.mi).padStart(2, "0");
   return `${w.mo}/${w.d} ${wallWeekday(w)} ${hh}:${mm}`;
-}
-
-/** Short date only (M/D). */
-export function fmtDateShort(raw: string | null | undefined): string {
-  if (!raw) return "";
-  const w = parseWall(raw);
-  return w ? `${w.mo}/${w.d}` : raw.trim().slice(0, 10);
 }
 
 /**
