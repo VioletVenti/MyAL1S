@@ -2,7 +2,7 @@
 // Kept here (not in Dashboard.tsx) so Calendar.tsx and the new panels can reuse
 // them without importing Dashboard (which would be circular).
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Envelope } from "./api";
 
 /** Load an envelope and track loading state; `reload` re-fetches. */
@@ -19,6 +19,20 @@ export function useEnvelope<T>(loader: () => Promise<Envelope<T>>) {
   }, []);
   useEffect(() => reload(), [reload]);
   return { env, loading, reload };
+}
+
+/** Re-run `reload` when `refreshKey` changes (login / auto-refresh / mutations),
+ *  but NOT on first mount — `useEnvelope` already fetches once on mount, so
+ *  calling reload here too would double-fetch every panel on initial load. */
+export function useRefresh(refreshKey: number, reload: () => void) {
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    reload();
+  }, [refreshKey, reload]);
 }
 
 export function Panel({
@@ -71,14 +85,6 @@ export function EnvelopeBody<T>({
     );
   if (env.status === "error") return <p className="error">出错了：{env.message}</p>;
   return <>{renderData(env.data)}</>;
-}
-
-/** Format an RFC3339-ish date string to a compact local form; '' on failure. */
-export function fmtDate(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 /** Short weekday labels in ISO order (Mon..Sun), paired with their api key. */

@@ -86,11 +86,14 @@ overrides the agent's default (picker); `conversation_id` loads stored history
 `trace` of tool calls/results ("思考可见").
 
 **Dashboard (deterministic, P1):**
-`GET /api/todo` → `composer.todo()` merges Store stars + custom items (no live
-crawl). `GET /api/calendar?week=` → `composer.week()` fetches the course table
-via `gateway.call_tool` and overlays the starred/custom items whose date falls
-in that ISO week. `GET /api/new-notices` → `composer.new_notices()` diffs live
-assignment/announcement ids against the Store's seen-id watermark; `POST
+`GET /api/todo` → `composer.todo()` returns the **undone-only** list: starred
+assignments/announcements enriched with live data (a live-and-submitted starred
+assignment is excluded) + custom items not marked done. `GET /api/calendar?week=`
+→ `composer.week()` is the **star-retention** view: it shows **every** starred +
+custom item whose anchor date falls in that ISO week, **regardless of
+submitted/done status** (a completed item still appears on its day — the calendar
+is distinct from 待办). `GET /api/new-notices` → `composer.new_notices()` diffs
+live assignment/announcement ids against the Store's seen-id watermark; `POST
 /api/new-notices/mark-seen` merges the current ids in. None of these touch the
 LLM — `routes/dashboard.py` and `composer.py` import neither the agent nor
 `pydantic_ai` (a structural test asserts it).

@@ -127,24 +127,56 @@ class Composer:
     # ---- weekly calendar ---------------------------------------------------
 
     async def week(self, iso_week: str | None = None) -> dict:
-        """The weekly calendar view.
+        """The weekly calendar view — the **star-retention** view, deliberately
+        distinct from [`todo`] (which is undone-only).
+
+        Unlike `todo()`, this shows **every** starred item + every custom item
+        whose anchor date falls in the requested ISO week, *regardless* of
+        submitted/done status — a completed custom item and a submitted-but-starred
+        assignment still appear on their day (the star is retained for the
+        calendar). The frontend renders them with a done/submitted marker.
 
         Returns:
           - ``course_table``: the raw MCP envelope for ``get_course_table``
-            (so the frontend branches on ``status``: ``ok``/``needs_otp``/
-            ``error`` and renders the 课表 grid exactly as before).
-          - ``items``: the starred + custom items whose anchor date falls inside
-            the requested ISO week (the per-day click-to-reveal overlay).
-          - ``week``: the resolved ``YYYY-Www`` (handy for the frontend header).
+            (frontend branches on ``status``: ``ok``/``needs_otp``/``error``).
+          - ``items``: starred + custom items anchored in the requested week.
+          - ``week``: the resolved ``YYYY-Www`` (for the header).
         """
         course_table = await self._gateway.call_tool("get_course_table")
 
         week_start, week_end, week_label = _iso_week_range(iso_week)
+        live = {
+            SOURCE_ASSIGNMENT: await self._live_index(SOURCE_ASSIGNMENT),
+            SOURCE_ANNOUNCEMENT: await self._live_index(SOURCE_ANNOUNCEMENT),
+        }
+
         in_week: list[dict] = []
-        for it in await self.todo():
-            d = it.get("date")
+        for s in await self._store.list_stars():
+            if s["source"] == SOURCE_ASSIGNMENT:
+                litem = live[SOURCE_ASSIGNMENT].get(s["item_id"])
+                item = _enrich_star(s, litem, date_field="deadline", track_submitted=True)
+            else:
+                litem = live[SOURCE_ANNOUNCEMENT].get(s["item_id"])
+                item = _enrich_star(s, litem, date_field="time", track_submitted=False)
+            d = item.get("date")
             if d is not None and _date_in(d, week_start, week_end):
-                in_week.append(it)
+                in_week.append(item)
+
+        for c in await self._store.list_items():
+            if c["due"] is not None and _date_in(c["due"], week_start, week_end):
+                in_week.append(
+                    {
+                        "kind": "custom",
+                        "id": f"custom:{c['id']}",
+                        "custom_id": c["id"],
+                        "title": c["title"],
+                        "course": c["course"],
+                        "date": c["due"],
+                        "note": c["note"],
+                        "source": c["source"],
+                        "done": c["done"],  # NOT filtered — done still shows on its day
+                    }
+                )
 
         return {
             "course_table": course_table,

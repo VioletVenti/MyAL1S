@@ -9,6 +9,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   type ChatTraceEntry,
   type ConversationSummary,
+  deleteConversation,
   getConversation,
   getModels,
   listConversations,
@@ -86,6 +87,19 @@ export default function ChatBox() {
     }
   };
 
+  const removeConversation = async (id: string) => {
+    try {
+      await deleteConversation(id);
+      if (id === conversationId) {
+        setConversationId(null);
+        setMessages([]);
+      }
+      await refreshConversations();
+    } catch (err) {
+      setMessages([{ role: "assistant", text: `删除失败：${String(err)}` }]);
+    }
+  };
+
   return (
     <div className="chat">
       <div className="chat-toolbar">
@@ -115,6 +129,13 @@ export default function ChatBox() {
               <li key={c.id} className={c.id === conversationId ? "active" : ""}>
                 <button className="ghost history-item" onClick={() => void openConversation(c.id)}>
                   {c.title ?? "(未命名)"}
+                </button>
+                <button
+                  className="ghost danger hist-del"
+                  title="删除该会话"
+                  onClick={() => void removeConversation(c.id)}
+                >
+                  ✕
                 </button>
               </li>
             ))}

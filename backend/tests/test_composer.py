@@ -155,7 +155,13 @@ async def test_todo_undated_items_go_last(store):
 
 
 async def test_week_returns_course_table_and_filters_items_to_range(store):
-    gw = FakeGateway({"get_course_table": {"status": "ok", "data": {"course": []}}})
+    gw = FakeGateway(
+        {
+            "get_course_table": {"status": "ok", "data": {"course": []}},
+            "list_assignments": {"status": "ok", "data": {"assignments": []}},
+            "get_announcements": {"status": "ok", "data": {"announcements": []}},
+        }
+    )
     comp = Composer(store, gw)
     # 2026-W25 = Mon 2026-06-15 .. Sun 2026-06-21.
     await store.star(SOURCE_ASSIGNMENT, "in", title="本周内", date="2026-06-18")
@@ -165,8 +171,37 @@ async def test_week_returns_course_table_and_filters_items_to_range(store):
     assert view["course_table"] == {"status": "ok", "data": {"course": []}}
     assert view["week"] == "2026-W25"
     assert [it["title"] for it in view["items"]] == ["本周内"]
-    # week() fetches the course table; todo() enrichment adds the live tools.
-    assert "get_course_table" in gw.calls
+
+
+async def test_week_RETAINS_submitted_and_done_items_unlike_todo(store):
+    """Calendar = star-retention view: a submitted-but-starred assignment and a
+    done custom item still appear on their day (unlike todo(), which excludes
+    them). This is the C1 spec contract the first week() cut broke."""
+    gw = FakeGateway(
+        {
+            "get_course_table": {"status": "ok", "data": {"course": []}},
+            # The starred assignment is live AND submitted; todo() would drop it,
+            # but the calendar must retain it.
+            "list_assignments": {
+                "status": "ok",
+                "data": {"assignments": [
+                    {"id": "done", "course": "c", "title": "已交作业", "deadline": "2026-06-17", "submitted": True},
+                ]},
+            },
+            "get_announcements": {"status": "ok", "data": {"announcements": []}},
+        }
+    )
+    comp = Composer(store, gw)
+    await store.star(SOURCE_ASSIGNMENT, "done", title="已交作业", date="2026-06-17")
+    cid = await store.add_item(title="做完了的待办", due="2026-06-19")
+    await store.update_item(cid, done=True)
+
+    view = await comp.week("2026-W25")  # 06-15..06-21
+    titles = sorted(it["title"] for it in view["items"])
+    assert "已交作业" in titles and "做完了的待办" in titles
+    # …even though todo() excludes both:
+    todo_titles = [it["title"] for it in await comp.todo()]
+    assert "已交作业" not in todo_titles and "做完了的待办" not in todo_titles
 
 
 async def test_week_malformed_iso_falls_back_to_current(store):

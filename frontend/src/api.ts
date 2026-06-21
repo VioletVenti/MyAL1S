@@ -75,8 +75,6 @@ export interface Video {
   time: string;
 }
 
-export const fetchCourseTable = () => getEnvelope<unknown>("/course-table");
-
 export const fetchAssignments = (includeFinished = false) =>
   getEnvelope<{ assignments: Assignment[]; include_finished: boolean }>(
     `/assignments?include_finished=${includeFinished}`,
@@ -135,17 +133,6 @@ export interface NewNotices {
   announcement: Announcement[];
 }
 
-export interface CustomItem {
-  id: number;
-  title: string;
-  due: string | null;
-  note: string | null;
-  course: string | null;
-  source: string | null;
-  done: boolean;
-  created_at: string;
-}
-
 export interface CustomItemInput {
   title: string;
   due?: string | null;
@@ -170,9 +157,6 @@ export async function removeStar(source: StarSource, item_id: string): Promise<v
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
-
-export const fetchCustomItems = () =>
-  getEnvelope<{ items: CustomItem[] }>("/custom-items");
 
 export const createCustomItem = (item: CustomItemInput) =>
   postJSON<{ status: string; id: number }>("/custom-items", item);

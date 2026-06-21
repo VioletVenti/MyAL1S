@@ -3,7 +3,7 @@
 // panels (作业 / 课程通知 / 课程材料 / 课程回放 / 成绩), and the four deferred-source
 // placeholders. Deterministic data only — nothing here goes through the LLM.
 
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode } from "react";
 import {
   type Announcement,
   type Assignment,
@@ -25,7 +25,7 @@ import DeferredPanel from "./DeferredPanel";
 import NewNoticesPanel from "./NewNoticesPanel";
 import TodoModule from "./TodoModule";
 import { StarToggle } from "./stars";
-import { EnvelopeBody, Panel, useEnvelope } from "./widgets";
+import { EnvelopeBody, Panel, useEnvelope, useRefresh } from "./widgets";
 
 function AssignmentsPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(() => fetchAssignments(false));
@@ -179,14 +179,6 @@ function GradesPanel({ refreshKey }: { refreshKey: number }) {
       />
     </Panel>
   );
-}
-
-/** Re-run `reload` whenever refreshKey changes (login / auto-refresh / mutations).
- * `reload` is stable (useCallback []), so this safely re-fetches on key change. */
-function useRefresh(refreshKey: number, reload: () => void) {
-  useEffect(() => {
-    reload();
-  }, [refreshKey, reload]);
 }
 
 export default function Dashboard({

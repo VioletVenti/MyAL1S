@@ -50,6 +50,15 @@ function dateKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
+/** "Today" as a UTC date key. Computed once so every comparison (initial week,
+ *  the 本周 button, the today-highlight) agrees with the UTC-based dateKey the
+ *  cells use — avoids the local-vs-UTC slip where a cell keyed in UTC could
+ *  render a different day label. */
+function todayUtcKey(): string {
+  const n = new Date();
+  return dateKey(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
+}
+
 function itemDateKey(item: TodoItem): string | null {
   if (!item.date) return null;
   const d = new Date(item.date);
@@ -82,7 +91,12 @@ function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
 // ---- component -----------------------------------------------------------
 
 export default function Calendar({ refreshKey }: { refreshKey: number }) {
-  const [week, setWeek] = useState(() => isoWeekOf(new Date()));
+  // Initial week from today (UTC-normalized, matching dateKey); memoized so it
+  // is stable across renders.
+  const [week, setWeek] = useState(() => {
+    const n = new Date();
+    return isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
+  });
   const [env, setEnv] = useState<Envelope<{ course_table: Envelope<unknown>; items: TodoItem[]; week: string }> | null>(null);
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
@@ -118,7 +132,10 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
         <h2>周历 · {week}</h2>
         <span className="panel-actions">
           <button onClick={() => setWeek((w) => shiftWeek(w, -1))}>‹ 上一周</button>
-          <button onClick={() => setWeek(isoWeekOf(new Date()))}>本周</button>
+          <button onClick={() => setWeek(() => {
+            const n = new Date();
+            return isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
+          })}>本周</button>
           <button onClick={() => setWeek((w) => shiftWeek(w, 1))}>下一周 ›</button>
           <button onClick={reload} disabled={loading}>{loading ? "加载中…" : "刷新"}</button>
         </span>
@@ -135,7 +152,7 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                 const cls = classes[key] ?? [];
                 const dayItems = itemsByDate[dKey] ?? [];
                 const open = openDay === dKey;
-                const today = dateKey(new Date()) === dKey;
+                const today = todayUtcKey() === dKey;
                 return (
                   <div
                     key={dKey}
@@ -147,7 +164,7 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                       title={dayItems.length ? `${dayItems.length} 个待办/星标` : ""}
                     >
                       <strong>{label}</strong>
-                      <span className="cal-date">{d.getMonth() + 1}/{d.getDate()}</span>
+                      <span className="cal-date">{d.getUTCMonth() + 1}/{d.getUTCDate()}</span>
                       {dayItems.length > 0 && <span className="cal-badge">★{dayItems.length}</span>}
                     </button>
                     <ul className="cal-classes">
@@ -160,13 +177,14 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                       <ul className="cal-items">
                         {dayItems.length === 0 && <li className="muted">这一天没有星标/待办</li>}
                         {dayItems.map((it) => (
-                          <li key={it.id}>
+                          <li key={it.id} className={it.done ? "done" : ""}>
                             <span className="cal-item-kind">
                               {it.kind === "custom" ? "自定义" : it.source === "announcement" ? "公告" : "作业"}
                             </span>
                             <span>{it.title}</span>
                             {it.course && <span className="muted"> · {it.course}</span>}
                             {it.submitted === true && <span className="muted"> (已交)</span>}
+                            {it.done && <span className="muted"> (已完成)</span>}
                           </li>
                         ))}
                       </ul>
