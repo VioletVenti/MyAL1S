@@ -386,12 +386,6 @@ class Store:
         await self._db.commit()
         return cur.rowcount > 0
 
-    async def conversation_titles(self) -> dict[str, str | None]:
-        """{conversation_id: title} for the frontend's history sidebar."""
-        cur = await self._c.execute("SELECT id, title FROM conversations")
-        rows = await cur.fetchall()
-        return {r[0]: r[1] for r in rows}
-
     # ---- introspection (tests / debugging) --------------------------------
 
     async def counts(self) -> dict[str, int]:
@@ -401,8 +395,3 @@ class Store:
             cur = await self._c.execute(f"SELECT COUNT(*) FROM {table}")
             out[table] = (await cur.fetchone())[0]
         return out
-
-    @staticmethod
-    def _pydantic_roundtrip(msgs: list[ModelMessage]) -> list[ModelMessage]:
-        """Exposed for tests: confirm serialization round-trips losslessly."""
-        return _deserialize_model_messages(_serialize_model_messages(msgs))

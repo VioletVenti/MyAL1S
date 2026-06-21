@@ -49,12 +49,15 @@ def test_dashboard_persistence_and_composition_endpoints(monkeypatch, tmp_path) 
         }).json()["starred"] is True
         assert len(client.get("/api/stars").json()["stars"]) == 1
         todo = client.get("/api/todo").json()["items"]
-        assert todo and todo[0]["title"] == "作业一"
+        assert todo and any(it["title"] == "作业一" for it in todo)
 
         # custom item CRUD
         cid = client.post("/api/custom-items", json={"title": "交报告", "due": "2026-06-30"}).json()["id"]
         assert client.patch(f"/api/custom-items/{cid}", json={"done": True}).status_code == 200
-        assert client.get("/api/todo").json()["items"][-1]["done"] is True
+        # a done custom item leaves 待办 (todo = undone); it's still in /custom-items
+        todo_ids = [it.get("custom_id") for it in client.get("/api/todo").json()["items"]]
+        assert cid not in todo_ids
+        assert any(it["id"] == cid for it in client.get("/api/custom-items").json()["items"])
 
         # calendar: course-table status propagates; items list is present
         cal = client.get("/api/calendar?week=2026-W25").json()

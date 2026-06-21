@@ -58,9 +58,22 @@ async def test_call_tool_returns_status_envelope(settings: Settings) -> None:
 
 def test_deterministic_route_cannot_reach_the_llm() -> None:
     """Architecture decision #3, enforced structurally: the deterministic
-    module must not import the LLM library or touch the agent."""
+    module must not import the LLM library. AST-based so a docstring that merely
+    *mentions* `pydantic_ai` does not trip a naive substring check (consistent
+    with test_composer.py::test_composer_and_dashboard_route_cannot_reach_the_llm)."""
+    import ast
+
     import app.routes.deterministic as det
 
     src = inspect.getsource(det)
-    assert "pydantic_ai" not in src
-    assert ".agent" not in src
+    assert ".agent" not in src  # never touches the agent
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            assert not any(
+                a.name == "pydantic_ai" or a.name.startswith("pydantic_ai.") for a in node.names
+            ), "deterministic.py imports pydantic_ai"
+        elif isinstance(node, ast.ImportFrom):
+            assert not (
+                node.module and (node.module == "pydantic_ai" or node.module.startswith("pydantic_ai."))
+            ), "deterministic.py imports pydantic_ai"

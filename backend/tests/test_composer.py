@@ -44,24 +44,109 @@ async def store(tmp_path):
 # ---- todo -----------------------------------------------------------------
 
 
-async def test_todo_merges_stars_and_custom_sorted_by_date(store):
-    gw = FakeGateway({})  # todo() makes no live calls
+async def test_todo_enriches_with_live_and_sorts_by_date(store):
+    gw = FakeGateway(
+        {
+            "list_assignments": {
+                "status": "ok",
+                "data": {"assignments": [
+                    {"id": "a1", "course": "数学", "title": "作业A", "deadline": "2026-06-27", "submitted": False},
+                ]},
+            },
+            "get_announcements": {
+                "status": "ok",
+                "data": {"announcements": [
+                    {"id": "n1", "course": "数学", "title": "公告N", "time": "2026-06-22"},
+                ]},
+            },
+        }
+    )
     comp = Composer(store, gw)
-    await store.star(SOURCE_ASSIGNMENT, "a1", title="作业A", date="2026-06-27")
+    await store.star(SOURCE_ASSIGNMENT, "a1", title="旧标题", date="2026-06-20")
     await store.star(SOURCE_ANNOUNCEMENT, "n1", title="公告N", date="2026-06-22")
     await store.add_item(title="自定义C", due="2026-06-25")
 
     items = await comp.todo()
     titles = [it["title"] for it in items]
-    assert titles == ["公告N", "自定义C", "作业A"]  # ascending by date
+    assert titles == ["公告N", "自定义C", "作业A"]  # ascending by anchor date
     assert {it["kind"] for it in items} == {"star", "custom"}
-    assert gw.calls == []  # todo() renders from snapshots only
+    # The starred assignment is enriched with the LIVE snapshot (title refreshed,
+    # deadline used), not the stale star title/date.
+    a1 = next(it for it in items if it["id"] == "a1")
+    assert a1["title"] == "作业A" and a1["live"] is True and a1["submitted"] is False
+    assert a1["date"] == "2026-06-27"  # live deadline, not the stale 06-20
+    # todo() now does crawl the live tools (1h cache amortizes it).
+    assert "list_assignments" in gw.calls and "get_announcements" in gw.calls
+
+
+async def test_todo_excludes_submitted_assignments_but_keeps_star(store):
+    """A starred assignment that is live and submitted is excluded from 待办
+    (it's done); the star is retained for /stars + the calendar."""
+    gw = FakeGateway(
+        {
+            "list_assignments": {
+                "status": "ok",
+                "data": {"assignments": [
+                    {"id": "done", "course": "c", "title": "已交", "deadline": "2026-06-20", "submitted": True},
+                    {"id": "open", "course": "c", "title": "未交", "deadline": "2026-06-28", "submitted": False},
+                ]},
+            },
+            "get_announcements": {"status": "ok", "data": {"announcements": []}},
+        }
+    )
+    comp = Composer(store, gw)
+    await store.star(SOURCE_ASSIGNMENT, "done", title="已交", date="2026-06-20")
+    await store.star(SOURCE_ASSIGNMENT, "open", title="未交", date="2026-06-28")
+
+    items = await comp.todo()
+    assert [it["id"] for it in items] == ["open"]  # submitted one excluded
+    # …but the star itself is still there.
+    assert len(await store.list_stars()) == 2
+
+
+async def test_todo_excludes_done_custom_items(store):
+    gw = FakeGateway(
+        {
+            "list_assignments": {"status": "ok", "data": {"assignments": []}},
+            "get_announcements": {"status": "ok", "data": {"announcements": []}},
+        }
+    )
+    comp = Composer(store, gw)
+    cid = await store.add_item(title="做完了", due="2026-06-25")
+    await store.update_item(cid, done=True)
+    await store.add_item(title="还没", due="2026-06-26")
+    items = await comp.todo()
+    assert [it["title"] for it in items] == ["还没"]
+
+
+async def test_todo_falls_back_to_snapshot_when_item_not_live(store):
+    """When the live tools aren't usable (needs_otp / error), every starred item
+    falls back to its stored snapshot — 待办 still renders offline."""
+    gw = FakeGateway(
+        {
+            "list_assignments": {"status": "needs_otp", "mobile_mask": None, "hint": "..."},
+            "get_announcements": {"status": "error", "message": "boom"},
+        }
+    )
+    comp = Composer(store, gw)
+    await store.star(SOURCE_ASSIGNMENT, "a1", title="快照A", course="数学", date="2026-06-27")
+    items = await comp.todo()
+    assert len(items) == 1
+    a1 = items[0]
+    assert a1["live"] is False and a1["title"] == "快照A"
+    assert a1["submitted"] is None  # unknown — no live data
 
 
 async def test_todo_undated_items_go_last(store):
-    comp = Composer(store, FakeGateway({}))
-    await store.star(SOURCE_ASSIGNMENT, "a1", title="有日期", date="2026-09-01")
-    await store.star(SOURCE_ANNOUNCEMENT, "n2", title="无日期")  # date=None
+    gw = FakeGateway(
+        {
+            "list_assignments": {"status": "ok", "data": {"assignments": []}},
+            "get_announcements": {"status": "ok", "data": {"announcements": []}},
+        }
+    )
+    comp = Composer(store, gw)
+    await store.star(SOURCE_ASSIGNMENT, "dated", title="有日期", date="2026-09-01")
+    await store.star(SOURCE_ANNOUNCEMENT, "undated", title="无日期")  # date=None, not live
     items = await comp.todo()
     assert [it["title"] for it in items] == ["有日期", "无日期"]
 
@@ -80,7 +165,8 @@ async def test_week_returns_course_table_and_filters_items_to_range(store):
     assert view["course_table"] == {"status": "ok", "data": {"course": []}}
     assert view["week"] == "2026-W25"
     assert [it["title"] for it in view["items"]] == ["本周内"]
-    assert gw.calls == ["get_course_table"]
+    # week() fetches the course table; todo() enrichment adds the live tools.
+    assert "get_course_table" in gw.calls
 
 
 async def test_week_malformed_iso_falls_back_to_current(store):

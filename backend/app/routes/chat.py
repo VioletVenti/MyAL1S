@@ -16,6 +16,7 @@ Non-streaming for now; streaming over WebSocket remains a fast-follow (P4).
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -61,8 +62,6 @@ def _stringify(value: Any) -> str:
     if isinstance(value, str):
         return value
     try:
-        import json
-
         return json.dumps(value, ensure_ascii=False)
     except (TypeError, ValueError):
         return str(value)

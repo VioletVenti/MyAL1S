@@ -57,23 +57,41 @@ class Composer:
     # ---- 待办 --------------------------------------------------------------
 
     async def todo(self) -> list[dict]:
-        """All starred assignments + starred announcements + custom items, unified
-        and sorted by anchor date (undated items last). Renders from Store
-        snapshots — no live crawl — so the dashboard is fast and works offline.
-        The snapshot is refreshed each time the user (un-)stars an item."""
+        """The 待办 module: starred assignments + starred announcements + custom
+        items — **undone ones only** — enriched with live data where available.
+
+        For each starred item we fetch the live list (`list_assignments
+        include_finished=True` / `get_announcements`) and prefer the live
+        snapshot (title/course/date, and for assignments the `submitted` flag);
+        an item no longer in the live list falls back to its stored star
+        snapshot. A starred assignment that is live and already **submitted** is
+        excluded (it is done); custom items marked `done` are excluded too.
+        待办 = "important-but-undone"; done things stay queryable via ``/stars``
+        and ``/custom-items`` (the star itself is retained for the calendar).
+
+        The live crawl is amortized by pku3b's 1-hour HTTP cache; on
+        ``needs_otp`` / ``error`` every starred item falls back to its snapshot,
+        so 待办 still renders when not logged in.
+        """
+        live = {
+            SOURCE_ASSIGNMENT: await self._live_index(SOURCE_ASSIGNMENT),
+            SOURCE_ANNOUNCEMENT: await self._live_index(SOURCE_ANNOUNCEMENT),
+        }
+
         items: list[dict] = []
         for s in await self._store.list_stars():
-            items.append(
-                {
-                    "kind": "star",
-                    "source": s["source"],
-                    "id": s["item_id"],
-                    "title": s["title"],
-                    "course": s["course"],
-                    "date": s["date"],
-                }
-            )
+            if s["source"] == SOURCE_ASSIGNMENT:
+                litem = live[SOURCE_ASSIGNMENT].get(s["item_id"])
+                if litem is not None and litem.get("submitted"):
+                    continue  # submitted -> done -> not 待办 (star retained)
+                items.append(_enrich_star(s, litem, date_field="deadline", track_submitted=True))
+            else:  # announcement: no "done" concept
+                litem = live[SOURCE_ANNOUNCEMENT].get(s["item_id"])
+                items.append(_enrich_star(s, litem, date_field="time", track_submitted=False))
+
         for c in await self._store.list_items():
+            if c["done"]:
+                continue  # done custom item -> not 待办
             items.append(
                 {
                     "kind": "custom",
@@ -84,13 +102,27 @@ class Composer:
                     "date": c["due"],
                     "note": c["note"],
                     "source": c["source"],
-                    "done": c["done"],
+                    "done": False,
                 }
             )
+
         # Undated last; otherwise ascending by anchor date string (RFC3339 sorts
         # lexicographically in chronological order).
         items.sort(key=lambda x: (x.get("date") is None, x.get("date") or ""))
         return items
+
+    async def _live_index(self, source: str) -> dict[str, dict]:
+        """Fetch the live list for a source and index it by item id. Empty dict
+        on any non-``ok`` envelope (``needs_otp`` / ``error``) — callers then
+        fall back to the stored snapshot."""
+        meta = _SOURCE_TOOL[source]
+        # include_finished so submitted assignments come back and can be detected
+        # (and excluded from 待办 as done).
+        args = {"include_finished": True} if source == SOURCE_ASSIGNMENT else None
+        env = await self._gateway.call_tool(meta["tool"], args)
+        return {
+            str(it.get(meta["id_key"])): it for it in _live_items(env, meta["list_key"])
+        }
 
     # ---- weekly calendar ---------------------------------------------------
 
@@ -165,6 +197,38 @@ def _ids(env: dict, meta: dict) -> list[str]:
 def _unseen(env: dict, meta: dict, seen: set[str]) -> list[dict]:
     """The live items whose id is not in `seen`."""
     return [it for it in _live_items(env, meta["list_key"]) if str(it.get(meta["id_key"])) not in seen]
+
+
+def _enrich_star(
+    snapshot: dict, live: dict | None, *, date_field: str, track_submitted: bool
+) -> dict:
+    """Build a 待办 item from a star snapshot, enriched with live data when the
+    item is still present in the live list; otherwise render from the snapshot.
+
+    ``date_field`` is the live key holding the anchor date (``deadline`` for
+    assignments, ``time`` for announcements). When ``track_submitted`` is set
+    (assignments) the item carries a ``submitted`` flag — True/False when live,
+    None when only the snapshot is available (status unknown).
+    """
+    out: dict = {
+        "kind": "star",
+        "source": snapshot["source"],
+        "id": snapshot["item_id"],
+        "live": live is not None,
+    }
+    if live is not None:
+        out["title"] = live.get("title") or snapshot["title"]
+        out["course"] = live.get("course") or snapshot["course"]
+        out["date"] = live.get(date_field) or snapshot["date"]
+        if track_submitted:
+            out["submitted"] = bool(live.get("submitted"))
+    else:
+        out["title"] = snapshot["title"]
+        out["course"] = snapshot["course"]
+        out["date"] = snapshot["date"]
+        if track_submitted:
+            out["submitted"] = None  # not in the live list — status unknown
+    return out
 
 
 def _iso_week_range(iso_week: str | None) -> tuple[date, date, str]:
