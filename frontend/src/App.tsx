@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import ChatBox from "./ChatBox";
-import Dashboard from "./Dashboard";
+import Dashboard, { type DashboardView } from "./Dashboard";
 import { login } from "./api";
 import { StarProvider } from "./stars";
 
@@ -60,6 +60,7 @@ export default function App() {
   // Bumping refreshKey makes the dashboard panels + calendar re-fetch.
   const [refreshKey, setRefreshKey] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [view, setView] = useState<DashboardView>("main");
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
@@ -75,6 +76,22 @@ export default function App() {
           <h1>MyAL1S</h1>
           <span className="subtitle">PKU 校园信息终端助手</span>
           <span className="toolbar">
+            <span className="seg">
+              <button
+                className={view === "main" ? "active" : "ghost"}
+                onClick={() => setView("main")}
+                title="主界面：周历 + 待办 + 新到通知"
+              >
+                主界面
+              </button>
+              <button
+                className={view === "directory" ? "active" : "ghost"}
+                onClick={() => setView("directory")}
+                title="目录：作业 / 通知 / 材料 / 回放 / 成绩 / 更多"
+              >
+                目录
+              </button>
+            </span>
             <button
               className={autoRefresh ? "" : "ghost"}
               onClick={() => setAutoRefresh((v) => !v)}
@@ -86,7 +103,7 @@ export default function App() {
         </header>
         <LoginBar onConnected={bump} />
         <main className="layout">
-          <Dashboard refreshKey={refreshKey} bump={bump} />
+          <Dashboard view={view} refreshKey={refreshKey} bump={bump} />
           <aside className="sidebar">
             <h2>对话</h2>
             <ChatBox />

@@ -1,7 +1,8 @@
-// Dashboard composition root: the whole main (non-chat) content area. Stacks
-// the weekly Calendar, 待办 / 新到通知 modules, the teaching-network listing
-// panels (作业 / 课程通知 / 课程材料 / 课程回放 / 成绩), and the four deferred-source
-// placeholders. Deterministic data only — nothing here goes through the LLM.
+// Dashboard composition root. Two views (toggled in App via the `view` prop):
+//   - "main": the glanceable subset — Calendar + 待办 + 新到通知
+//   - "directory": the full listing panels (作业/课程通知/材料/回放/成绩 + 延后源)
+// All raw teaching-network fields pass through `format.ts` before rendering, so
+// no blobs / Debug-names / raw timestamps reach the DOM. Deterministic only.
 
 import { type ReactNode } from "react";
 import {
@@ -22,6 +23,7 @@ import {
 } from "./api";
 import Calendar from "./Calendar";
 import DeferredPanel from "./DeferredPanel";
+import { fmtAnnouncementTime, fmtDate, fmtDeadline, fmtDescription, kindLabel } from "./format";
 import NewNoticesPanel from "./NewNoticesPanel";
 import TodoModule from "./TodoModule";
 import { StarToggle } from "./stars";
@@ -29,11 +31,9 @@ import { EnvelopeBody, Panel, useEnvelope, useRefresh } from "./widgets";
 
 function AssignmentsPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(() => fetchAssignments(false));
-  // refreshKey is read via the hook's loader identity; bump via App remounts
-  // the dashboard. Keep an effect-free refresh by depending on refreshKey:
   useRefresh(refreshKey, reload);
   return (
-    <Panel title="作业 · 按 DDL" loading={loading} onReload={reload}>
+    <Panel title="作业 · 按 DDL" loading={loading} onReload={reload} category="assignment">
       <EnvelopeBody
         env={env}
         loading={loading}
@@ -46,7 +46,7 @@ function AssignmentsPanel({ refreshKey }: { refreshKey: number }) {
                 <li key={a.id}>
                   <span className="course">{a.course}</span>
                   <span className="title">{a.title}</span>
-                  <span className="ddl">{a.deadline_raw ?? a.deadline ?? "无截止"}</span>
+                  <span className="ddl">{fmtDeadline(a.deadline, a.deadline_raw)}</span>
                   <span className="row-actions">
                     <StarToggle source="assignment" itemId={a.id} snapshot={{ title: a.title, course: a.course, date: a.deadline }} />
                   </span>
@@ -64,7 +64,7 @@ function AnnouncementsPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(fetchAnnouncements);
   useRefresh(refreshKey, reload);
   return (
-    <Panel title="课程通知" loading={loading} onReload={reload}>
+    <Panel title="课程通知" loading={loading} onReload={reload} category="announcement">
       <EnvelopeBody
         env={env}
         loading={loading}
@@ -78,9 +78,9 @@ function AnnouncementsPanel({ refreshKey }: { refreshKey: number }) {
                   <div className="ann-main">
                     <span className="course">{a.course}</span>
                     <span className="title">{a.title}</span>
-                    <span className="ddl">{a.time ?? ""}</span>
+                    <span className="ddl">{fmtAnnouncementTime(a.time)}</span>
                   </div>
-                  {a.descriptions.length > 0 && <div className="ann-desc">{a.descriptions.join(" / ")}</div>}
+                  {a.descriptions.length > 0 && <div className="ann-desc">{fmtDescription(a.descriptions)}</div>}
                   <span className="row-actions">
                     <StarToggle source="announcement" itemId={a.id} snapshot={{ title: a.title, course: a.course, date: a.time }} />
                   </span>
@@ -98,7 +98,7 @@ function MaterialsPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(fetchMaterials);
   useRefresh(refreshKey, reload);
   return (
-    <Panel title="课程材料" loading={loading} onReload={reload}>
+    <Panel title="课程材料" loading={loading} onReload={reload} category="material">
       <EnvelopeBody
         env={env}
         loading={loading}
@@ -110,7 +110,9 @@ function MaterialsPanel({ refreshKey }: { refreshKey: number }) {
               {d.materials.map((m: Material, i) => (
                 <li key={`${m.ccid}-${i}`}>
                   <span className="course">{m.course}</span>
-                  <span className="title">{m.title} <span className="muted">[{m.kind}]</span></span>
+                  <span className="title">
+                    {m.title} <span className="kind-chip">{kindLabel(m.kind)}</span>
+                  </span>
                   <span className="ddl">{m.attachment_count > 0 ? `${m.attachment_count} 附件` : ""}</span>
                 </li>
               ))}
@@ -126,7 +128,7 @@ function VideosPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(fetchVideos);
   useRefresh(refreshKey, reload);
   return (
-    <Panel title="课程回放" loading={loading} onReload={reload}>
+    <Panel title="课程回放" loading={loading} onReload={reload} category="video">
       <EnvelopeBody
         env={env}
         loading={loading}
@@ -139,7 +141,7 @@ function VideosPanel({ refreshKey }: { refreshKey: number }) {
                 <li key={v.id}>
                   <span className="course">{v.course}</span>
                   <span className="title">{v.title}</span>
-                  <span className="ddl">{v.time}</span>
+                  <span className="ddl">{fmtDate(v.time, false)}</span>
                 </li>
               ))}
             </ul>
@@ -154,7 +156,7 @@ function GradesPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(fetchGrades);
   useRefresh(refreshKey, reload);
   return (
-    <Panel title="成绩" loading={loading} onReload={reload}>
+    <Panel title="成绩" loading={loading} onReload={reload} category="grade">
       <EnvelopeBody
         env={env}
         loading={loading}
@@ -181,18 +183,30 @@ function GradesPanel({ refreshKey }: { refreshKey: number }) {
   );
 }
 
+export type DashboardView = "main" | "directory";
+
 export default function Dashboard({
+  view,
   refreshKey,
   bump,
 }: {
+  view: DashboardView;
   refreshKey: number;
   bump: () => void;
 }): ReactNode {
+  if (view === "main") {
+    return (
+      <div className="dashboard main-view">
+        <Calendar refreshKey={refreshKey} />
+        <div className="main-row">
+          <TodoModule refreshKey={refreshKey} bump={bump} />
+          <NewNoticesPanel refreshKey={refreshKey} bump={bump} />
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="dashboard">
-      <Calendar refreshKey={refreshKey} />
-      <TodoModule refreshKey={refreshKey} bump={bump} />
-      <NewNoticesPanel refreshKey={refreshKey} bump={bump} />
+    <div className="dashboard directory-view">
       <div className="panel-grid">
         <AssignmentsPanel refreshKey={refreshKey} />
         <AnnouncementsPanel refreshKey={refreshKey} />

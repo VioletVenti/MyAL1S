@@ -4,6 +4,7 @@
 
 import type { Announcement, Assignment } from "./api";
 import { fetchNewNotices, markNoticesSeen } from "./api";
+import { fmtAnnouncementTime, fmtDeadline } from "./format";
 import { StarToggle } from "./stars";
 import { EnvelopeBody, Panel, useEnvelope, useRefresh } from "./widgets";
 
@@ -24,7 +25,7 @@ export default function NewNoticesPanel({
   };
 
   return (
-    <Panel title="新到通知" loading={loading} onReload={reload}>
+    <Panel title="新到通知" loading={loading} onReload={reload} category="notice">
       <EnvelopeBody
         env={env}
         loading={loading}
@@ -44,7 +45,7 @@ export default function NewNoticesPanel({
                       <li key={x.id}>
                         <span className="muted">{x.course}</span>
                         <span className="title">{x.title}</span>
-                        <span className="ddl">{x.deadline_raw ?? x.deadline ?? ""}</span>
+                        <span className="ddl">{fmtDeadline(x.deadline, x.deadline_raw)}</span>
                         <span className="row-actions">
                           <StarToggle source="assignment" itemId={x.id} snapshot={{ title: x.title, course: x.course, date: x.deadline }} />
                         </span>
@@ -61,7 +62,7 @@ export default function NewNoticesPanel({
                       <li key={x.id}>
                         <span className="muted">{x.course}</span>
                         <span className="title">{x.title}</span>
-                        <span className="ddl">{x.time ?? ""}</span>
+                        <span className="ddl">{fmtAnnouncementTime(x.time)}</span>
                         <span className="row-actions">
                           <StarToggle source="announcement" itemId={x.id} snapshot={{ title: x.title, course: x.course, date: x.time }} />
                         </span>

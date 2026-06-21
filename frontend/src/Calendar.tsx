@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Envelope, TodoItem } from "./api";
 import { fetchCalendar } from "./api";
+import { parseCourseSlot } from "./format";
 import { EnvelopeBody, WEEKDAYS } from "./widgets";
 
 // ---- ISO-week helpers (pure) --------------------------------------------
@@ -70,9 +71,13 @@ function itemDateKey(item: TodoItem): string | null {
 interface Slot {
   period: number;
   name: string;
+  room?: string;
+  teacher?: string;
 }
 
-/** Extract per-weekday class lists from the portal course-table JSON. */
+/** Extract per-weekday class lists from the portal course-table JSON, parsing
+ *  the raw `courseName` blob into a clean {name, room, teacher} via format.ts
+ *  (mirrors pku3b's CLI format_course_info). */
 function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
   if (courseTable.status !== "ok") return {};
   const slots = (courseTable.data as { course?: unknown })?.course;
@@ -81,8 +86,11 @@ function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
   for (const [key] of WEEKDAYS) out[key] = [];
   slots.forEach((slot, idx) => {
     WEEKDAYS.forEach(([key]) => {
-      const name = (slot as Record<string, { courseName?: string }>)?.[key]?.courseName;
-      if (name) out[key].push({ period: idx + 1, name });
+      const raw = (slot as Record<string, { courseName?: string }>)?.[key]?.courseName;
+      if (!raw) return;
+      const parsed = parseCourseSlot(raw);
+      if (parsed.name)
+        out[key].push({ period: idx + 1, name: parsed.name, room: parsed.room, teacher: parsed.teacher });
     });
   });
   return out;
@@ -127,7 +135,7 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   }, [items]);
 
   return (
-    <section className="panel calendar">
+    <section className="panel calendar cat-calendar">
       <header>
         <h2>周历 · {week}</h2>
         <span className="panel-actions">
@@ -169,7 +177,12 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                     </button>
                     <ul className="cal-classes">
                       {cls.map((c) => (
-                        <li key={c.period}>第{c.period}节 · {c.name}</li>
+                        <li key={c.period}>
+                          <span className="cal-class-period">第{c.period}节</span>
+                          <span className="cal-class-name">{c.name}</span>
+                          {c.room && <span className="cal-class-room muted">{c.room}</span>}
+                          {c.teacher && <span className="cal-class-teacher muted">{c.teacher}</span>}
+                        </li>
                       ))}
                       {cls.length === 0 && <li className="muted">无课</li>}
                     </ul>

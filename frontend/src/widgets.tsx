@@ -35,21 +35,33 @@ export function useRefresh(refreshKey: number, reload: () => void) {
   }, [refreshKey, reload]);
 }
 
+export type Category =
+  | "calendar"
+  | "todo"
+  | "notice"
+  | "assignment"
+  | "announcement"
+  | "material"
+  | "video"
+  | "grade";
+
 export function Panel({
   title,
   loading,
   onReload,
   actions,
+  category,
   children,
 }: {
   title: string;
   loading?: boolean;
   onReload?: () => void;
   actions?: ReactNode;
+  category?: Category;
   children: ReactNode;
 }) {
   return (
-    <section className="panel">
+    <section className={`panel${category ? ` cat-${category}` : ""}`}>
       <header>
         <h2>{title}</h2>
         <span className="panel-actions">

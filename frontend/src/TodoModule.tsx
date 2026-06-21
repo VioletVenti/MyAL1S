@@ -6,6 +6,7 @@
 
 import { fetchTodo } from "./api";
 import { CustomItemForm, CustomTodoRow } from "./CustomItemEditor";
+import { fmtDeadline, fmtDate } from "./format";
 import { StarToggle } from "./stars";
 import { EnvelopeBody, Panel, useEnvelope, useRefresh } from "./widgets";
 
@@ -23,7 +24,7 @@ export default function TodoModule({
   const items = env && env.status === "ok" ? env.data.items : [];
 
   return (
-    <Panel title="待办 · 按 DDL" loading={loading} onReload={reload}>
+    <Panel title="待办 · 按 DDL" loading={loading} onReload={reload} category="todo">
       <CustomItemForm onCreated={bump} />
       <EnvelopeBody
         env={env}
@@ -47,7 +48,11 @@ export default function TodoModule({
                       {it.live === false && <span className="muted"> (快照)</span>}
                     </span>
                     <span className="muted">{it.course}</span>
-                    <span className="ddl">{it.date ?? ""}</span>
+                    <span className="ddl">
+                      {it.source === "announcement"
+                        ? fmtDate(it.date, false)
+                        : fmtDeadline(it.date, null)}
+                    </span>
                     {/* Render the toggle unconditionally: these items are starred
                         server-side, and StarToggle reads the live star set from
                         the provider, so it shows the correct ★/☆ regardless of

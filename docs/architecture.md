@@ -107,6 +107,33 @@ The frontend wraps `<App/>` in an `ErrorBoundary` (`main.tsx`) so a thrown rende
 error in any panel shows a visible diagnostic instead of unmounting the whole
 tree to a blank page (React has no default boundary).
 
+## Data cleaning + the format layer (P1 / Increment D)
+
+Teaching-network data is **raw** (portal blobs, Rust Debug enum names, RFC3339
+timestamps). Two layers clean it before it reaches the DOM:
+
+- **Backend (pku3b)** normalizes **structured** fields at the source —
+  `list_course_materials` emits a Chinese `kind` label (文档/文件/文件夹/…), not
+  the Rust `CourseContentKind` Debug name. This benefits every consumer
+  (dashboard + agent).
+- **Frontend `format.ts`** is the **display** layer — pure functions that turn
+  raw shapes into short Chinese strings: `parseCourseSlot` (the courseName blob
+  → `{name, room, teacher}`, mirroring pku3b's CLI `format_course_info`),
+  `fmtDeadline`/`fmtDate` (RFC3339 + Chinese dates → `6/27 周六 11:59`, keeping
+  the source's wall-clock, no tz conversion), `fmtAnnouncementTime` (strips the
+  `发布时间：` prefix), `truncate`/`fmtDescription` (long text → one short line),
+  `kindLabel` (safety-net for stale English values). Every function is total —
+  on an unexpected shape it returns a safe fallback, never throws (so it can't
+  re-trigger the blank-page render-crash class).
+
+## Views (main / directory)
+
+The app has no router; `App.tsx` holds a `view: "main" | "directory"` state
+toggled by a segmented control in the header. **Main** = the glanceable subset
+(Calendar + 待办 + 新到通知); **Directory** = the full listing panels
+(作业/课程通知/材料/回放/成绩 + the four 待接入 placeholders). The chat sidebar
+is a sibling of `<Dashboard>`, independent of the view.
+
 ## Login: one OTP for both services
 
 `login(otp)` (`tools.rs`) spends the single OTP on the **portal**; that login
