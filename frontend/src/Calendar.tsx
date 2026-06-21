@@ -75,6 +75,46 @@ interface Slot {
   teacher?: string;
 }
 
+// ---- period → wall-clock time map (PKU fixed convention) ----------------
+// 8:00 start, 50-min class + 10-min break; AM 4 / PM 4 / Eve 3 periods.
+// The portal `course[]` array index IS the period number (1-based). Times are
+// absolute minutes-from-midnight; the time-axis grid positions a class block by
+// its [start,end) minute range.
+interface PeriodTime {
+  start: number; // minutes from midnight
+  end: number;
+}
+const PERIOD_TIMES: Record<number, PeriodTime> = {
+  1: { start: 8 * 60, end: 8 * 60 + 50 }, // 08:00–08:50
+  2: { start: 9 * 60, end: 9 * 60 + 50 }, // 09:00–09:50
+  3: { start: 10 * 60, end: 10 * 60 + 50 }, // 10:00–10:50
+  4: { start: 11 * 60, end: 11 * 60 + 50 }, // 11:00–11:50
+  5: { start: 13 * 60, end: 13 * 60 + 50 }, // 13:00–13:50
+  6: { start: 14 * 60, end: 14 * 60 + 50 }, // 14:00–14:50
+  7: { start: 15 * 60, end: 15 * 60 + 50 }, // 15:00–15:50
+  8: { start: 16 * 60, end: 16 * 60 + 50 }, // 16:00–16:50
+  9: { start: 18 * 60 + 40, end: 18 * 60 + 40 + 50 }, // 18:40–19:30
+  10: { start: 19 * 60 + 40, end: 19 * 60 + 40 + 50 }, // 19:40–20:30
+  11: { start: 20 * 60 + 40, end: 20 * 60 + 40 + 50 }, // 20:40–21:30
+};
+
+/** Grid row range (top..bottom of the visible day) + px-per-minute scale. */
+const DAY_START_MIN = 8 * 60; // 08:00
+const DAY_END_MIN = 21 * 60 + 40; // 21:40
+const PX_PER_MIN = 1.15; // ~70px per 50-min class — readable block height
+const GAP_MIN = 0; // continuous axis; gaps are drawn as empty rows
+
+/** Minutes → "H:MM" label. */
+function minToLabel(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+/** Hour ticks for the left time axis (every hour from 8:00 to 21:00). */
+const HOUR_TICKS: number[] = Array.from({ length: 14 }, (_, i) => (8 + i) * 60);
+
+
 /** Extract per-weekday class lists from the portal course-table JSON, parsing
  *  the raw `courseName` blob into a clean {name, room, teacher} via format.ts
  *  (mirrors pku3b's CLI format_course_info). */
@@ -152,61 +192,97 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
         <EnvelopeBody
           env={courseTable}
           loading={loading}
-          renderData={() => (
-            <div className="calendar-grid">
-              {dates.map((d, i) => {
-                const [key, label] = WEEKDAYS[i];
-                const dKey = dateKey(d);
-                const cls = classes[key] ?? [];
-                const dayItems = itemsByDate[dKey] ?? [];
-                const open = openDay === dKey;
-                const today = todayUtcKey() === dKey;
-                return (
-                  <div
-                    key={dKey}
-                    className={`cal-day${today ? " today" : ""}${dayItems.length ? " has-items" : ""}`}
-                  >
-                    <button
-                      className="cal-day-head"
-                      onClick={() => setOpenDay(open ? null : dKey)}
-                      title={dayItems.length ? `${dayItems.length} 个待办/星标` : ""}
-                    >
-                      <strong>{label}</strong>
-                      <span className="cal-date">{d.getUTCMonth() + 1}/{d.getUTCDate()}</span>
-                      {dayItems.length > 0 && <span className="cal-badge">★{dayItems.length}</span>}
-                    </button>
-                    <ul className="cal-classes">
-                      {cls.map((c) => (
-                        <li key={c.period}>
-                          <span className="cal-class-period">第{c.period}节</span>
-                          <span className="cal-class-name">{c.name}</span>
-                          {c.room && <span className="cal-class-room muted">{c.room}</span>}
-                          {c.teacher && <span className="cal-class-teacher muted">{c.teacher}</span>}
-                        </li>
-                      ))}
-                      {cls.length === 0 && <li className="muted">无课</li>}
-                    </ul>
-                    {open && (
-                      <ul className="cal-items">
-                        {dayItems.length === 0 && <li className="muted">这一天没有星标/待办</li>}
-                        {dayItems.map((it) => (
-                          <li key={it.id} className={it.done ? "done" : ""}>
-                            <span className="cal-item-kind">
-                              {it.kind === "custom" ? "自定义" : it.source === "announcement" ? "公告" : "作业"}
-                            </span>
-                            <span>{it.title}</span>
-                            {it.course && <span className="muted"> · {it.course}</span>}
-                            {it.submitted === true && <span className="muted"> (已交)</span>}
-                            {it.done && <span className="muted"> (已完成)</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+          renderData={() => {
+            const daySpan = DAY_END_MIN - DAY_START_MIN;
+            const axisHeight = daySpan * PX_PER_MIN + GAP_MIN;
+            return (
+              <>
+                {/* ---- day-header row ---- */}
+                <div className="cal-head-row">
+                  <span className="cal-corner">时间</span>
+                  {dates.map((d, i) => {
+                    const label = WEEKDAYS[i][1];
+                    const dKey = dateKey(d);
+                    const dayItems = itemsByDate[dKey] ?? [];
+                    const today = todayUtcKey() === dKey;
+                    return (
+                      <button
+                        key={dKey}
+                        className={`cal-head${today ? " today" : ""}${dayItems.length ? " has-items" : ""}`}
+                        onClick={() => setOpenDay(openDay === dKey ? null : dKey)}
+                        title={dayItems.length ? `${dayItems.length} 个待办/星标` : ""}
+                      >
+                        <strong>{label}</strong>
+                        <span className="cal-date">{d.getUTCMonth() + 1}/{d.getUTCDate()}</span>
+                        {dayItems.length > 0 && <span className="cal-badge">★{dayItems.length}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* ---- time-axis grid ---- */}
+                <div className="cal-tt">
+                  {/* left time axis */}
+                  <div className="cal-axis" style={{ height: axisHeight }}>
+                    {HOUR_TICKS.map((t) => (
+                      <div key={t} className="cal-tick" style={{ top: (t - DAY_START_MIN) * PX_PER_MIN }}>
+                        {minToLabel(t)}
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  {/* 7 day columns */}
+                  {dates.map((d, i) => {
+                    const [key] = WEEKDAYS[i];
+                    const dKey = dateKey(d);
+                    const cls = classes[key] ?? [];
+                    const today = todayUtcKey() === dKey;
+                    return (
+                      <div key={dKey} className={`cal-col${today ? " today" : ""}`} style={{ height: axisHeight }}>
+                        {cls.map((c) => {
+                          const t = PERIOD_TIMES[c.period];
+                          if (!t) return null;
+                          const top = (t.start - DAY_START_MIN) * PX_PER_MIN;
+                          const h = (t.end - t.start) * PX_PER_MIN;
+                          return (
+                            <div
+                              key={c.period}
+                              className="cal-block"
+                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}`}
+                              style={{ top, height: h }}
+                            >
+                              <span className="cal-block-time">{minToLabel(t.start)}</span>
+                              <span className="cal-block-name">{c.name}</span>
+                              {c.room && <span className="cal-block-room">{c.room}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ---- expanded day's todo/notice items ---- */}
+                {openDay && (
+                  <ul className="cal-items">
+                    {(itemsByDate[openDay] ?? []).length === 0 && (
+                      <li className="muted">这一天没有星标/待办</li>
+                    )}
+                    {(itemsByDate[openDay] ?? []).map((it) => (
+                      <li key={it.id} className={it.done ? "done" : ""}>
+                        <span className="cal-item-kind">
+                          {it.kind === "custom" ? "自定义" : it.source === "announcement" ? "公告" : "作业"}
+                        </span>
+                        <span>{it.title}</span>
+                        {it.course && <span className="muted"> · {it.course}</span>}
+                        {it.submitted === true && <span className="muted"> (已交)</span>}
+                        {it.done && <span className="muted"> (已完成)</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            );
+          }}
         />
         <p className="muted cal-hint">默认只显示课表；点击日期可展开当天的星标作业 / 公告 / 自定义待办。</p>
       </div>

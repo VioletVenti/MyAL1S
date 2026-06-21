@@ -6,6 +6,26 @@
 export const fixtures: Record<string, unknown> = {
   // Deterministic endpoints — bare domain objects.
   "course-table": { status: "needs_otp", mobile_mask: null, hint: "登录一次" },
+  // A logged-in course table: `course` is an array; index+1 = period number;
+  // each slot's weekday key holds the raw `courseName` blob (parsed by
+  // parseCourseSlot). Used by the timetable render test.
+  "course-table-ok": {
+    status: "ok",
+    data: {
+      nowXnxq: { xndxq: "2025-20262" },
+      zc: 1,
+      course: [
+        // period 1 (08:00): Mon + Wed
+        { mon: { courseName: "高等数学(主) 理教101 上课信息：周一1-2节 理教101 教师：张三 考试信息：期末" }, wed: { courseName: "高等数学(主) 理教101 上课信息：周三1-2节 理教101 教师：张三" } },
+        // period 2 (09:00): same course continues
+        { mon: { courseName: "高等数学(主) 理教101 上课信息：周一1-2节 理教101 教师：张三" }, wed: { courseName: "高等数学(主) 理教101 上课信息：周三1-2节 理教101 教师：张三" } },
+        {}, // period 3 empty
+        {}, // period 4 empty
+        // period 5 (13:00): Tue 线性代数
+        { tue: { courseName: "线性代数(主) 二教105 上课信息：周二5节 二教105 教师：李四" } },
+      ],
+    },
+  },
   assignments: {
     status: "ok",
     data: {

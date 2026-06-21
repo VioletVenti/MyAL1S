@@ -409,103 +409,151 @@ button:disabled {
   flex: 1 1 14rem;
 }
 
-/* ---- weekly calendar ---- */
-.calendar-grid {
+/* ---- weekly calendar (time-axis timetable) ---- */
+
+/* day-header row: a corner cell + 7 day headers. */
+.cal-head-row {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 0.45rem;
-}
-@media (max-width: 1100px) {
-  .calendar-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-.cal-day {
-  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.35rem 0.45rem;
-  min-height: 4.5rem;
-}
-.cal-day.today {
-  border-color: var(--c-calendar);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-.cal-day.has-items .cal-day-head {
-  outline: 1px solid var(--c-notice);
-  outline-offset: 1px;
-}
-.cal-day-head {
-  display: flex;
+  grid-template-columns: 3.2rem repeat(7, 1fr);
   gap: 0.3rem;
+  margin-bottom: 0.4rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.cal-corner {
+  font-size: 0.72rem;
+  color: var(--muted);
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  width: 100%;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-  margin-bottom: 0.2rem;
+  justify-content: center;
+}
+.cal-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.35rem 0.2rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
   box-shadow: none;
+  cursor: pointer;
+  color: var(--text);
 }
-.cal-day-head:hover {
+.cal-head:hover {
   filter: none;
+  background: var(--panel);
 }
-.cal-day-head strong {
+.cal-head strong {
   color: var(--c-calendar);
   font-size: 0.82rem;
 }
+.cal-head.today {
+  border-color: var(--c-calendar);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cal-head.has-items {
+  border-color: var(--c-notice);
+}
 .cal-date {
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
 }
 .cal-badge {
-  margin-left: auto;
   color: #fff;
   background: var(--c-notice);
   border-radius: 999px;
   padding: 0 0.4rem;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
+  margin-top: 0.1rem;
 }
-.cal-classes,
+
+/* the grid: left time axis + 7 day columns, each an absolutely-positioned
+   container whose height = the visible day span. Class blocks are positioned
+   by their wall-clock start/end minutes (top/height). */
+.cal-tt {
+  display: grid;
+  grid-template-columns: 3.2rem repeat(7, 1fr);
+  gap: 0.3rem;
+  overflow-x: auto;
+}
+.cal-axis {
+  position: relative;
+}
+.cal-tick {
+  position: absolute;
+  right: 0.3rem;
+  transform: translateY(-50%);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.cal-col {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--hour-px, 69px) - 1px),
+      var(--border) calc(var(--hour-px, 69px) - 1px),
+      var(--border) var(--hour-px, 69px)
+    ),
+    var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* faint horizontal hour lines are drawn by the repeating gradient above; the
+     --hour-px fallback ≈ 60min * 1.15. */
+}
+.cal-col.today {
+  border-color: var(--c-calendar);
+  background-color: var(--accent-soft);
+}
+
+/* a class block: positioned by top/height (minutes → px). */
+.cal-block {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  background: linear-gradient(135deg, var(--c-calendar) 0%, #818cf8 100%);
+  color: #fff;
+  border-radius: 7px;
+  padding: 0.2rem 0.35rem;
+  overflow: hidden;
+  font-size: 0.72rem;
+  line-height: 1.25;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+.cal-block-time {
+  font-size: 0.62rem;
+  opacity: 0.85;
+}
+.cal-block-name {
+  font-weight: 700;
+  font-size: 0.74rem;
+}
+.cal-block-room {
+  font-size: 0.66rem;
+  opacity: 0.9;
+}
+
+/* expanded day's starred/todo items (below the grid) */
 .cal-items {
   list-style: none;
-  margin: 0;
-  padding: 0;
-  font-size: 0.78rem;
+  margin: 0.7rem 0 0;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
   line-height: 1.5;
-}
-.cal-classes li {
-  border: 0;
-  padding: 0.18rem 0;
-  display: block;
-}
-.cal-class-period {
-  color: var(--muted);
-  font-size: 0.72rem;
-  margin-right: 0.25rem;
-}
-.cal-class-name {
-  font-weight: 600;
-  color: var(--text);
-}
-.cal-class-room,
-.cal-class-teacher {
-  display: block;
-  font-size: 0.7rem;
-  margin-left: 0;
-}
-.cal-items {
-  margin-top: 0.35rem;
-  padding-top: 0.35rem;
-  border-top: 1px dashed var(--border-2);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 .cal-items li {
   border: 0;
-  padding: 0.12rem 0;
+  padding: 0.15rem 0;
   display: block;
 }
 .cal-item-kind {

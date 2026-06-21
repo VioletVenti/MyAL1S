@@ -8,6 +8,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
+import Calendar from "../src/Calendar";
 import ErrorBoundary from "../src/ErrorBoundary";
 import NewNoticesPanel from "../src/NewNoticesPanel";
 import { StarProvider } from "../src/stars";
@@ -125,5 +126,33 @@ describe("NewNoticesPanel is compact (collapses long lists)", () => {
     // Expanded: all 8 rows.
     await waitFor(() => expect(container.querySelectorAll(".list.notices li")).toHaveLength(8));
     vi.unstubAllGlobals();
+  });
+});
+
+describe("Calendar renders the time-axis timetable", () => {
+  it("places class blocks by wall-clock period (08:00 / 09:00 / 13:00)", async () => {
+    // /api/calendar envelope whose data.course_table is a logged-in table.
+    const calResp = {
+      status: "ok",
+      data: {
+        week: "2026-W26",
+        items: [],
+        course_table: fixtures["course-table-ok"],
+      },
+    };
+    vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
+    const { container } = render(<Calendar refreshKey={0} />);
+
+    // The 7 day columns + axis appear once loaded.
+    await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
+    // 3 class blocks total: period1+period2 on Mon, period1+period2 on Wed
+    // (高等数学), period5 on Tue (线性代数) = 5 blocks.
+    const blocks = container.querySelectorAll(".cal-block");
+    expect(blocks.length).toBeGreaterThanOrEqual(3);
+    // Period 1 (08:00) block sits at the top of its column (top ≈ 0).
+    const firstTop = parseFloat((blocks[0] as HTMLElement).style.top);
+    expect(firstTop).toBe(0); // 08:00 = DAY_START, 0px
+    // Each block's time label is rendered.
+    expect(container.textContent).toContain("8:00");
   });
 });
