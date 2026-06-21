@@ -9,6 +9,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
 import ErrorBoundary from "../src/ErrorBoundary";
+import NewNoticesPanel from "../src/NewNoticesPanel";
+import { StarProvider } from "../src/stars";
 import { fixtures } from "./fixtures";
 
 // Stub fetch → the static fixtures, keyed by the /api/<path>.
@@ -91,5 +93,37 @@ describe("blank-page regression: an ErrorBoundary contains crashes (no blank pag
       expect(container.textContent).toMatch(/渲染出错/);
     });
     expect(container.childElementCount).toBeGreaterThan(0);
+  });
+});
+
+describe("NewNoticesPanel is compact (collapses long lists)", () => {
+  it("shows only the preview count, then expands to all", async () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      id: `a${i}`,
+      course: "课",
+      title: `作业${i}`,
+      deadline: null,
+      deadline_raw: null,
+      submitted: false,
+      last_attempt: null,
+    }));
+    vi.stubGlobal("fetch", stubFetch({ "new-notices": { status: "ok", data: { assignment: many, announcement: [] } } }));
+    const { container } = render(
+      <StarProvider>
+        <NewNoticesPanel refreshKey={0} bump={() => {}} />
+      </StarProvider>,
+    );
+
+    // Collapsed: only 3 (PREVIEW) rows + an "展开全部 8 条" toggle.
+    await waitFor(() => expect(container.querySelectorAll(".list.notices li")).toHaveLength(3));
+    const expandBtn = Array.from(container.querySelectorAll("button")).find((b) =>
+      /展开全部 8 条/.test(b.textContent || ""),
+    );
+    expect(expandBtn).toBeTruthy();
+    fireEvent.click(expandBtn!);
+
+    // Expanded: all 8 rows.
+    await waitFor(() => expect(container.querySelectorAll(".list.notices li")).toHaveLength(8));
+    vi.unstubAllGlobals();
   });
 });

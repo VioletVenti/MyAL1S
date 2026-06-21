@@ -321,6 +321,20 @@ button:disabled {
   margin-left: 0.3rem;
 }
 
+/* compact panel footer (e.g. 新到通知 expand/mark-seen row) */
+.notices-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.linkish {
+  color: var(--accent-ink);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
 /* announcements: two-line rows */
 .list.announcements li.ann {
   flex-direction: row;
