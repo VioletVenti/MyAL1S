@@ -25,15 +25,18 @@ Errors: unknown method → JSON-RPC `-32601`; unknown tool → `-32602`; parse e
 → `-32700`. A tool that *runs but fails* returns a normal result with
 `isError: true` (clients like pydantic-ai surface this as an exception).
 
-## Tools (P0, all read-only)
+## Tools (read-only data tools; P0 + P1)
 
 | name | arguments | `data` payload |
 |------|-----------|----------------|
 | `get_course_table` | `{}` | portal course-table JSON |
-| `list_assignments` | `{ include_finished?: bool = false }` | `{ include_finished, assignments: [{course, title, deadline, deadline_raw, submitted, last_attempt}] }`, sorted by deadline |
+| `list_assignments` | `{ include_finished?: bool = false }` | `{ include_finished, assignments: [{id, course, title, deadline, deadline_raw, submitted, last_attempt}] }`, sorted by deadline |
 | `get_grades` | `{}` | `{ grades: [{course, item, score, possible}] }` |
+| `get_announcements` | `{}` | `{ announcements: [{id, course, title, time, descriptions[], attachments[]}] }`, sorted newest-first by `time` (items without a time go last) |
+| `list_course_materials` | `{}` | `{ materials: [{course, ccid, title, kind, attachments}] }` — content-tree items **excluding** assignment/announcement kinds (those have their own tools); `ccid` is `course_id:content_id`, `kind` is the `CourseContentKind` Debug name (Document/File/Folder/Audio/Quiz/…), `attachments` is a count |
+| `list_videos` | `{}` | `{ videos: [{id, course, title, time}] }`, sorted newest-first |
 
-`submit_file` (the only side-effecting pku3b API) is **not** exposed.
+`id` (on assignments, announcements, videos) is a **stable** per-item identity — callers use it to star / dedupe / detect "new since last visit". `submit_file` (the only side-effecting pku3b API) is **not** exposed.
 
 ## Result envelope
 
