@@ -38,6 +38,23 @@ Errors: unknown method → JSON-RPC `-32601`; unknown tool → `-32602`; parse e
 
 `id` (on assignments, announcements, videos) is a **stable** per-item identity — callers use it to star / dedupe / detect "new since last visit". `submit_file` (the only side-effecting pku3b API) is **not** exposed.
 
+## Future tools (P3 — NOT yet implemented)
+
+These are **contracts the P1 dashboard's 教务通知 / 北大树洞 placeholders are
+shaped against**. They are not implemented today (no code path), but documented
+here so the P3 scraper lands against a fixed shape. They will be added to the
+`pku3b` MCP server following the standard "How to add a new MCP tool" loop.
+
+| name (planned) | arguments | `data` payload |
+|------|-----------|----------------|
+| `get_dean_updates` | `{}` | `{ updates: [{id, title, time, category, url, summary}] }` — dean's-office notices |
+| `list_treehole_posts` | `{ tag?: string, limit?: int }` | `{ posts: [{id, title, body, author, time, tags[], reply_count}] }` — 北大树洞 (IAAA reuse) |
+| `get_treehole_post` | `{ id: string }` | `{ post: {id, title, body, author, time, tags[], reply_count} }` |
+
+All three are planned read-only. Authentication for 树洞 is expected to reuse
+the IAAA trusted-device flow already established by the `login` tool; the exact
+appid/endpoints need capture-and-reverse-engineering (TBD, plan §7).
+
 ## Result envelope
 
 `tools/call` results carry both a text content block and `structuredContent`,

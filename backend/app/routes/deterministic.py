@@ -35,3 +35,21 @@ async def assignments(request: Request, include_finished: bool = False) -> dict:
 async def grades(request: Request) -> dict:
     """Published grade items for current-semester courses."""
     return await _gateway(request).call_tool("get_grades")
+
+
+@router.get("/announcements")
+async def announcements(request: Request) -> dict:
+    """Course announcements, newest-first (envelope: ok|needs_otp|error)."""
+    return await _gateway(request).call_tool("get_announcements")
+
+
+@router.get("/materials")
+async def materials(request: Request) -> dict:
+    """Course content-tree items (excluding assignments/announcements), read-only."""
+    return await _gateway(request).call_tool("list_course_materials")
+
+
+@router.get("/videos")
+async def videos(request: Request) -> dict:
+    """Course replay video listings, read-only."""
+    return await _gateway(request).call_tool("list_videos")

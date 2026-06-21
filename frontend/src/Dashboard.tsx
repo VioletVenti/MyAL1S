@@ -1,76 +1,37 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+// Dashboard composition root: the whole main (non-chat) content area. Stacks
+// the weekly Calendar, 待办 / 新到通知 modules, the teaching-network listing
+// panels (作业 / 课程通知 / 课程材料 / 课程回放 / 成绩), and the four deferred-source
+// placeholders. Deterministic data only — nothing here goes through the LLM.
+
+import { type ReactNode, useEffect } from "react";
 import {
+  type Announcement,
   type Assignment,
-  type Envelope,
+  type DeanUpdate,
+  type DocResult,
   type Grade,
+  type Material,
+  type MemoryEntry,
+  type TreeholePost,
+  type Video,
+  fetchAnnouncements,
   fetchAssignments,
-  fetchCourseTable,
   fetchGrades,
+  fetchMaterials,
+  fetchVideos,
 } from "./api";
+import Calendar from "./Calendar";
+import DeferredPanel from "./DeferredPanel";
+import NewNoticesPanel from "./NewNoticesPanel";
+import TodoModule from "./TodoModule";
+import { StarToggle } from "./stars";
+import { EnvelopeBody, Panel, useEnvelope } from "./widgets";
 
-/** Load an envelope and track loading state; `reload` re-fetches. */
-function useEnvelope<T>(loader: () => Promise<Envelope<T>>) {
-  const [env, setEnv] = useState<Envelope<T> | null>(null);
-  const [loading, setLoading] = useState(false);
-  const reload = useCallback(() => {
-    setLoading(true);
-    loader()
-      .then(setEnv)
-      .finally(() => setLoading(false));
-    // loader identity is stable per panel; intentional single-shot dep.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => reload(), [reload]);
-  return { env, loading, reload };
-}
-
-function Panel({
-  title,
-  loading,
-  onReload,
-  children,
-}: {
-  title: string;
-  loading: boolean;
-  onReload: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <section className="panel">
-      <header>
-        <h2>{title}</h2>
-        <button onClick={onReload} disabled={loading}>
-          {loading ? "加载中…" : "刷新"}
-        </button>
-      </header>
-      <div className="panel-body">{children}</div>
-    </section>
-  );
-}
-
-/** Render envelope status; delegate the `ok` case to `renderData`. */
-function EnvelopeBody<T>({
-  env,
-  loading,
-  renderData,
-}: {
-  env: Envelope<T> | null;
-  loading: boolean;
-  renderData: (data: T) => ReactNode;
-}) {
-  if (!env) return <p className="muted">{loading ? "加载中…" : "—"}</p>;
-  if (env.status === "needs_otp")
-    return (
-      <p className="notice">
-        需要登录 / 手机令牌{env.mobile_mask ? `（${env.mobile_mask}）` : ""}。{env.hint}
-      </p>
-    );
-  if (env.status === "error") return <p className="error">出错了：{env.message}</p>;
-  return <>{renderData(env.data)}</>;
-}
-
-function AssignmentsPanel() {
+function AssignmentsPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(() => fetchAssignments(false));
+  // refreshKey is read via the hook's loader identity; bump via App remounts
+  // the dashboard. Keep an effect-free refresh by depending on refreshKey:
+  useRefresh(refreshKey, reload);
   return (
     <Panel title="作业 · 按 DDL" loading={loading} onReload={reload}>
       <EnvelopeBody
@@ -81,11 +42,14 @@ function AssignmentsPanel() {
             <p className="muted">没有未完成的作业 🎉</p>
           ) : (
             <ul className="list">
-              {d.assignments.map((a: Assignment, i) => (
-                <li key={i}>
+              {d.assignments.map((a: Assignment) => (
+                <li key={a.id}>
                   <span className="course">{a.course}</span>
                   <span className="title">{a.title}</span>
-                  <span className="ddl">{a.deadline_raw ?? a.deadline ?? "无截止时间"}</span>
+                  <span className="ddl">{a.deadline_raw ?? a.deadline ?? "无截止"}</span>
+                  <span className="row-actions">
+                    <StarToggle source="assignment" itemId={a.id} snapshot={{ title: a.title, course: a.course, date: a.deadline }} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -96,8 +60,99 @@ function AssignmentsPanel() {
   );
 }
 
-function GradesPanel() {
+function AnnouncementsPanel({ refreshKey }: { refreshKey: number }) {
+  const { env, loading, reload } = useEnvelope(fetchAnnouncements);
+  useRefresh(refreshKey, reload);
+  return (
+    <Panel title="课程通知" loading={loading} onReload={reload}>
+      <EnvelopeBody
+        env={env}
+        loading={loading}
+        renderData={(d) =>
+          d.announcements.length === 0 ? (
+            <p className="muted">暂无公告</p>
+          ) : (
+            <ul className="list announcements">
+              {d.announcements.map((a: Announcement) => (
+                <li key={a.id} className="ann">
+                  <div className="ann-main">
+                    <span className="course">{a.course}</span>
+                    <span className="title">{a.title}</span>
+                    <span className="ddl">{a.time ?? ""}</span>
+                  </div>
+                  {a.descriptions.length > 0 && <div className="ann-desc">{a.descriptions.join(" / ")}</div>}
+                  <span className="row-actions">
+                    <StarToggle source="announcement" itemId={a.id} snapshot={{ title: a.title, course: a.course, date: a.time }} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      />
+    </Panel>
+  );
+}
+
+function MaterialsPanel({ refreshKey }: { refreshKey: number }) {
+  const { env, loading, reload } = useEnvelope(fetchMaterials);
+  useRefresh(refreshKey, reload);
+  return (
+    <Panel title="课程材料" loading={loading} onReload={reload}>
+      <EnvelopeBody
+        env={env}
+        loading={loading}
+        renderData={(d) =>
+          d.materials.length === 0 ? (
+            <p className="muted">暂无课程材料</p>
+          ) : (
+            <ul className="list">
+              {d.materials.map((m: Material, i) => (
+                <li key={`${m.ccid}-${i}`}>
+                  <span className="course">{m.course}</span>
+                  <span className="title">{m.title} <span className="muted">[{m.kind}]</span></span>
+                  <span className="ddl">{m.attachment_count > 0 ? `${m.attachment_count} 附件` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      />
+    </Panel>
+  );
+}
+
+function VideosPanel({ refreshKey }: { refreshKey: number }) {
+  const { env, loading, reload } = useEnvelope(fetchVideos);
+  useRefresh(refreshKey, reload);
+  return (
+    <Panel title="课程回放" loading={loading} onReload={reload}>
+      <EnvelopeBody
+        env={env}
+        loading={loading}
+        renderData={(d) =>
+          d.videos.length === 0 ? (
+            <p className="muted">暂无回放</p>
+          ) : (
+            <ul className="list">
+              {d.videos.map((v: Video) => (
+                <li key={v.id}>
+                  <span className="course">{v.course}</span>
+                  <span className="title">{v.title}</span>
+                  <span className="ddl">{v.time}</span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      />
+    </Panel>
+  );
+}
+
+function GradesPanel({ refreshKey }: { refreshKey: number }) {
   const { env, loading, reload } = useEnvelope(fetchGrades);
+  useRefresh(refreshKey, reload);
   return (
     <Panel title="成绩" loading={loading} onReload={reload}>
       <EnvelopeBody
@@ -126,69 +181,53 @@ function GradesPanel() {
   );
 }
 
-const DAYS: [string, string][] = [
-  ["mon", "周一"],
-  ["tue", "周二"],
-  ["wed", "周三"],
-  ["thu", "周四"],
-  ["fri", "周五"],
-  ["sat", "周六"],
-  ["sun", "周日"],
-];
-
-/** Best-effort render of the portal's course-table JSON; raw fallback. */
-function renderCourseTable(data: unknown): ReactNode {
-  const slots = (data as { course?: unknown })?.course;
-  if (!Array.isArray(slots)) {
-    return (
-      <details>
-        <summary>原始课表数据</summary>
-        <pre>{JSON.stringify(data, null, 2)}</pre>
-      </details>
-    );
-  }
-  return (
-    <div className="timetable">
-      {DAYS.map(([key, label]) => {
-        const items = slots
-          .map((slot, idx) => {
-            const name = (slot as Record<string, { courseName?: string }>)?.[key]?.courseName;
-            return name ? { period: idx + 1, name } : null;
-          })
-          .filter((x): x is { period: number; name: string } => x !== null);
-        if (items.length === 0) return null;
-        return (
-          <div className="day" key={key}>
-            <h4>{label}</h4>
-            <ul>
-              {items.map((it) => (
-                <li key={it.period}>
-                  第 {it.period} 节 · {it.name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        );
-      })}
-    </div>
-  );
+/** Re-run `reload` whenever refreshKey changes (login / auto-refresh / mutations).
+ * `reload` is stable (useCallback []), so this safely re-fetches on key change. */
+function useRefresh(refreshKey: number, reload: () => void) {
+  useEffect(() => {
+    reload();
+  }, [refreshKey, reload]);
 }
 
-function CourseTablePanel() {
-  const { env, loading, reload } = useEnvelope(fetchCourseTable);
-  return (
-    <Panel title="课表" loading={loading} onReload={reload}>
-      <EnvelopeBody env={env} loading={loading} renderData={renderCourseTable} />
-    </Panel>
-  );
-}
-
-export default function Dashboard() {
+export default function Dashboard({
+  refreshKey,
+  bump,
+}: {
+  refreshKey: number;
+  bump: () => void;
+}): ReactNode {
   return (
     <div className="dashboard">
-      <AssignmentsPanel />
-      <CourseTablePanel />
-      <GradesPanel />
+      <Calendar refreshKey={refreshKey} />
+      <TodoModule refreshKey={refreshKey} bump={bump} />
+      <NewNoticesPanel refreshKey={refreshKey} bump={bump} />
+      <div className="panel-grid">
+        <AssignmentsPanel refreshKey={refreshKey} />
+        <AnnouncementsPanel refreshKey={refreshKey} />
+        <MaterialsPanel refreshKey={refreshKey} />
+        <VideosPanel refreshKey={refreshKey} />
+        <GradesPanel refreshKey={refreshKey} />
+        <DeferredPanel<DeanUpdate>
+          title="教务通知"
+          futureTool="MCP: get_dean_updates"
+          fields={["id", "title", "time", "category", "url", "summary"]}
+        />
+        <DeferredPanel<TreeholePost>
+          title="北大树洞"
+          futureTool="MCP: list_treehole_posts / get_treehole_post"
+          fields={["id", "title", "body", "time", "tags", "reply_count"]}
+        />
+        <DeferredPanel<DocResult>
+          title="文档库"
+          futureTool="GET /api/docs/search"
+          fields={["id", "title", "course", "kind", "snippet", "url"]}
+        />
+        <DeferredPanel<MemoryEntry>
+          title="记忆"
+          futureTool="GET /api/memory"
+          fields={["id", "text", "tags", "created_at"]}
+        />
+      </div>
     </div>
   );
 }
