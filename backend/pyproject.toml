@@ -23,3 +23,9 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+# Explicit: only `app` is a Python package. `certs/` (vendored CA .pem files) is
+# data, not a package — without this setuptools >=75's flat-layout auto-discovery
+# errors on "Multiple top-level packages: app, certs".
+[tool.setuptools]
+packages = ["app"]
