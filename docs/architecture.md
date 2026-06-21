@@ -94,9 +94,18 @@ custom item whose anchor date falls in that ISO week, **regardless of
 submitted/done status** (a completed item still appears on its day — the calendar
 is distinct from 待办). `GET /api/new-notices` → `composer.new_notices()` diffs
 live assignment/announcement ids against the Store's seen-id watermark; `POST
-/api/new-notices/mark-seen` merges the current ids in. None of these touch the
-LLM — `routes/dashboard.py` and `composer.py` import neither the agent nor
+/api/new-notices/mark-seen` merges the current ids in. **All three dashboard
+routes wrap the composer output in the `{status:"ok", data}` envelope** — the
+composer returns bare domain shapes; the routes envelope them so the frontend
+consumes one consistent shape via `EnvelopeBody` (the composer's per-source
+degradation means the route status is always `ok`; calendar's
+`data.course_table` itself carries the inner login status). None of these touch
+the LLM — `routes/dashboard.py` and `composer.py` import neither the agent nor
 `pydantic_ai` (a structural test asserts it).
+
+The frontend wraps `<App/>` in an `ErrorBoundary` (`main.tsx`) so a thrown render
+error in any panel shows a visible diagnostic instead of unmounting the whole
+tree to a blank page (React has no default boundary).
 
 ## Login: one OTP for both services
 

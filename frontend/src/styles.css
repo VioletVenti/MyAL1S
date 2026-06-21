@@ -493,4 +493,14 @@ pre {
   overflow: auto;
 }
 
+/* ---- error boundary ---- */
+.error-boundary .panel {
+  max-width: 48rem;
+}
+.error-boundary pre {
+  max-height: 14rem;
+  overflow: auto;
+  margin: 0.5rem 0;
+}
+
 

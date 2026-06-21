@@ -48,25 +48,33 @@ def test_dashboard_persistence_and_composition_endpoints(monkeypatch, tmp_path) 
             "source": "assignment", "item_id": "a1", "title": "作业一", "date": "2026-06-27"
         }).json()["starred"] is True
         assert len(client.get("/api/stars").json()["stars"]) == 1
-        todo = client.get("/api/todo").json()["items"]
+        # /todo returns an {status, data:{items}} envelope (regression: the bare
+        # {items} shape crashed/blanked the frontend's EnvelopeBody).
+        todo_env = client.get("/api/todo").json()
+        assert todo_env["status"] == "ok"
+        todo = todo_env["data"]["items"]
         assert todo and any(it["title"] == "作业一" for it in todo)
 
         # custom item CRUD
         cid = client.post("/api/custom-items", json={"title": "交报告", "due": "2026-06-30"}).json()["id"]
         assert client.patch(f"/api/custom-items/{cid}", json={"done": True}).status_code == 200
         # a done custom item leaves 待办 (todo = undone); it's still in /custom-items
-        todo_ids = [it.get("custom_id") for it in client.get("/api/todo").json()["items"]]
+        todo_ids = [it.get("custom_id") for it in client.get("/api/todo").json()["data"]["items"]]
         assert cid not in todo_ids
         assert any(it["id"] == cid for it in client.get("/api/custom-items").json()["items"])
 
-        # calendar: course-table status propagates; items list is present
-        cal = client.get("/api/calendar?week=2026-W25").json()
-        assert cal["course_table"]["status"] in {"ok", "needs_otp", "error"}
-        assert "items" in cal
+        # calendar: an {status, data} envelope whose data.course_table itself
+        # carries the inner status (needs_otp/ok/error) and data.items is present.
+        cal_env = client.get("/api/calendar?week=2026-W25").json()
+        assert cal_env["status"] == "ok"
+        assert cal_env["data"]["course_table"]["status"] in {"ok", "needs_otp", "error"}
+        assert "items" in cal_env["data"]
 
-        # new-notices degrades gracefully (no credentials -> empty per source)
-        nn = client.get("/api/new-notices").json()
-        assert "assignment" in nn and "announcement" in nn
+        # new-notices: an {status, data} envelope whose data has both sources
+        # (regression: bare {assignment} crashed NewNoticesPanel's EnvelopeBody).
+        nn_env = client.get("/api/new-notices").json()
+        assert nn_env["status"] == "ok"
+        assert "assignment" in nn_env["data"] and "announcement" in nn_env["data"]
 
         # unstar + delete item clean up
         assert client.delete("/api/stars/assignment/a1").json()["starred"] is False

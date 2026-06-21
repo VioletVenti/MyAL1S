@@ -135,8 +135,10 @@ async def delete_item(item_id: int, request: Request) -> dict:
 @router.get("/todo")
 async def todo(request: Request) -> dict:
     """The 待办 module: starred assignments + starred announcements + custom
-    items, unified and sorted by anchor date."""
-    return {"items": await _composer(request).todo()}
+    items, unified and sorted by anchor date. Wrapped in the ``{status, data}``
+    envelope for consistency with the other deterministic endpoints — the
+    frontend consumes it via EnvelopeBody, which dereferences ``data``."""
+    return {"status": "ok", "data": {"items": await _composer(request).todo()}}
 
 
 # ---- weekly calendar -----------------------------------------------------
@@ -145,8 +147,12 @@ async def todo(request: Request) -> dict:
 @router.get("/calendar")
 async def calendar(request: Request, week: str | None = None) -> dict:
     """The weekly calendar: course table + the starred/custom items falling in
-    the requested ISO week (``YYYY-Www``). Omit ``week`` for the current week."""
-    return await _composer(request).week(week)
+    the requested ISO week (``YYYY-Www``). Omit ``week`` for the current week.
+
+    Wrapped in ``{status:"ok", data}``; ``data.course_table`` is itself an
+    envelope (ok/needs_otp/error) so the frontend can branch on login state
+    while still rendering the week's items."""
+    return {"status": "ok", "data": await _composer(request).week(week)}
 
 
 # ---- 新到通知 ------------------------------------------------------------
@@ -155,8 +161,10 @@ async def calendar(request: Request, week: str | None = None) -> dict:
 @router.get("/new-notices")
 async def new_notices(request: Request) -> dict:
     """Items new since the last mark-seen: live assignment + announcement ids
-    not yet in the seen-id watermark."""
-    return await _composer(request).new_notices()
+    not yet in the seen-id watermark. Wrapped in the ``{status, data}`` envelope
+    (the composer already degrades each source to ``[]`` when not logged in, so
+    the route status is always ``ok``)."""
+    return {"status": "ok", "data": await _composer(request).new_notices()}
 
 
 @router.post("/new-notices/mark-seen")
