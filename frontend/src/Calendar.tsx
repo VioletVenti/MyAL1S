@@ -111,9 +111,6 @@ function minToLabel(min: number): string {
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
-/** Hour ticks for the left time axis (every hour from 8:00 to 21:00). */
-const HOUR_TICKS: number[] = Array.from({ length: 14 }, (_, i) => (8 + i) * 60);
-
 
 /** Extract per-weekday class lists from the portal course-table JSON, parsing
  *  the raw `courseName` blob into a clean {name, room, teacher} via format.ts
@@ -222,13 +219,20 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
 
                 {/* ---- time-axis grid ---- */}
                 <div className="cal-tt">
-                  {/* left time axis */}
+                  {/* left time axis: one label per period (number + time range),
+                      positioned at the same top as the class block. Avoids the
+                      dangling "8:00" tick that the header row clipped. */}
                   <div className="cal-axis" style={{ height: axisHeight }}>
-                    {HOUR_TICKS.map((t) => (
-                      <div key={t} className="cal-tick" style={{ top: (t - DAY_START_MIN) * PX_PER_MIN }}>
-                        {minToLabel(t)}
-                      </div>
-                    ))}
+                    {Object.entries(PERIOD_TIMES).map(([pStr, t]) => {
+                      const top = (t.start - DAY_START_MIN) * PX_PER_MIN;
+                      const h = (t.end - t.start) * PX_PER_MIN;
+                      return (
+                        <div key={pStr} className="cal-slot-label" style={{ top, height: h }}>
+                          <span className="cal-slot-no">{pStr}</span>
+                          <span className="cal-slot-time">{minToLabel(t.start)}–{minToLabel(t.end)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                   {/* 7 day columns */}
                   {dates.map((d, i) => {
@@ -250,7 +254,6 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                               title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}`}
                               style={{ top, height: h }}
                             >
-                              <span className="cal-block-time">{minToLabel(t.start)}</span>
                               <span className="cal-block-name">{c.name}</span>
                               {c.room && <span className="cal-block-room">{c.room}</span>}
                             </div>

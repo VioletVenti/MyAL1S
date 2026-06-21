@@ -482,12 +482,28 @@ button:disabled {
 .cal-axis {
   position: relative;
 }
-.cal-tick {
+/* one label per period on the left axis: period number over its time range,
+   vertically aligned with the class block it labels. */
+.cal-slot-label {
   position: absolute;
-  right: 0.3rem;
-  transform: translateY(-50%);
-  font-size: 0.68rem;
+  left: 0;
+  right: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 0.15rem;
+  text-align: center;
+}
+.cal-slot-no {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-calendar);
+}
+.cal-slot-time {
+  font-size: 0.6rem;
   color: var(--muted);
+  line-height: 1.1;
 }
 .cal-col {
   position: relative;
@@ -526,10 +542,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
-}
-.cal-block-time {
-  font-size: 0.62rem;
-  opacity: 0.85;
 }
 .cal-block-name {
   font-weight: 700;
