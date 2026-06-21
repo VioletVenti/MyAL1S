@@ -33,7 +33,7 @@ Errors: unknown method → JSON-RPC `-32601`; unknown tool → `-32602`; parse e
 | `list_assignments` | `{ include_finished?: bool = false }` | `{ include_finished, assignments: [{id, course, title, deadline, deadline_raw, submitted, last_attempt}] }`, sorted by deadline |
 | `get_grades` | `{}` | `{ grades: [{course, item, score, possible}] }` |
 | `get_announcements` | `{}` | `{ announcements: [{id, course, title, time, descriptions[], attachments[]}] }`, sorted newest-first by `time` (items without a time go last); `attachments` is an array of attachment **names** |
-| `list_course_materials` | `{}` | `{ materials: [{course, ccid, title, kind, attachment_count}] }` — content-tree items **excluding** assignment/announcement kinds (those have their own tools); `ccid` is `course_id:content_id`, `kind` is the `CourseContentKind` Debug name (Document/File/Folder/Audio/Quiz/…), `attachment_count` is an integer |
+| `list_course_materials` | `{}` | `{ materials: [{course, ccid, title, kind, attachment_count}] }` — content-tree items **excluding** assignment/announcement kinds (those have their own tools); `ccid` is `course_id:content_id`, `kind` is a **Chinese label** (文档/文件/文件夹/音频/测试/其它 — mapped from `CourseContentKind`, never a Rust Debug name), `attachment_count` is an integer |
 | `list_videos` | `{}` | `{ videos: [{id, course, title, time}] }`, sorted newest-first |
 
 `id` (on assignments, announcements, videos) is a **stable** per-item identity — callers use it to star / dedupe / detect "new since last visit". `submit_file` (the only side-effecting pku3b API) is **not** exposed.
