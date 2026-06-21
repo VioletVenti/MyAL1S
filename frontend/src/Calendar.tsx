@@ -96,11 +96,12 @@ const PERIOD_TIMES: Record<number, PeriodTime> = {
   9: { start: 18 * 60 + 40, end: 18 * 60 + 40 + 50 }, // 18:40–19:30
   10: { start: 19 * 60 + 40, end: 19 * 60 + 40 + 50 }, // 19:40–20:30
   11: { start: 20 * 60 + 40, end: 20 * 60 + 40 + 50 }, // 20:40–21:30
+  12: { start: 21 * 60 + 40, end: 21 * 60 + 40 + 50 }, // 21:40–22:30
 };
 
 /** Grid row range (top..bottom of the visible day) + px-per-minute scale. */
 const DAY_START_MIN = 8 * 60; // 08:00
-const DAY_END_MIN = 21 * 60 + 40; // 21:40
+const DAY_END_MIN = 22 * 60 + 30; // 22:30 (period 12 ends)
 const PX_PER_MIN = 1.15; // ~70px per 50-min class — readable block height
 const GAP_MIN = 0; // continuous axis; gaps are drawn as empty rows
 

@@ -14,10 +14,20 @@ import {
 } from "../src/format";
 
 describe("parseCourseSlot", () => {
-  it("extracts name/room/teacher from the full blob (mirrors pku3b CLI)", () => {
-    const slot = parseCourseSlot("高等数学(主) 理教101 上课信息：周一3-4节 理教101 教师：张三 考试信息：2026年7月1日");
+  it("strips HTML tags + extracts name/room/teacher from the real portal blob", () => {
+    // Real shape (captured from /api/course-table): <font>/<b>/<br> tags, the
+    // 上课信息 text is "11-15周 每周 二教203" (week-pattern noise + room).
+    const blob =
+      "<font color = 'red'><b>人工智能基础(主)<br>上课信息：11-11,12-12,13-13周 每周 二教203  教师：王乐业 <br>考试信息：20260615 星期一 下午 二教205<";
+    const slot = parseCourseSlot(blob);
+    expect(slot.name).toBe("人工智能基础");
+    expect(slot.room).toBe("二教203"); // last token, week-noise dropped
+    expect(slot.teacher).toBe("王乐业");
+  });
+  it("extracts name/room/teacher from a plain-text blob", () => {
+    const slot = parseCourseSlot("高等数学(主) 上课信息：周一3-4节 理教101 教师：张三 考试信息：期末");
     expect(slot.name).toBe("高等数学");
-    expect(slot.room).toBe("周一3-4节 理教101");
+    expect(slot.room).toBe("理教101");
     expect(slot.teacher).toBe("张三");
   });
   it("falls back to the whole blob when the marker is absent", () => {

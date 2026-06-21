@@ -504,6 +504,7 @@ button:disabled {
   font-size: 0.6rem;
   color: var(--muted);
   line-height: 1.1;
+  white-space: nowrap;
 }
 .cal-col {
   position: relative;

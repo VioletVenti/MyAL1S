@@ -18,16 +18,21 @@ export interface CourseSlot {
 /**
  * Parse a portal `courseName` blob into a clean {name, room, teacher}.
  *
- * The blob looks like:
- *   "<课名>(主) <教室> 上课信息：<节次 + 教室> 教师：<名> 考试信息：<…>"
- * Mirrors `format_course_info` in pku3b's CLI. Defensive: if the blob doesn't
- * match the expected shape, returns {name: <whole blob trimmed>} so the cell
- * still shows *something* useful instead of crashing.
+ * The real blob is HTML — e.g. `<font color='red'><b>人工智能基础(主)<br>上课信
+ * 息：11-15周 每周 二教203 教师：王乐业 <br>考试信息：…`. So step 1 is always
+ * strip ALL tags; then mirror pku3b CLI `format_course_info`: name before
+ * `(主)`, room from the 上课信息 section (last whitespace token = the room),
+ * teacher from 教师：. Defensive: any unexpected shape → {name: trimmed blob}.
  */
 export function parseCourseSlot(blob: string | null | undefined): CourseSlot {
   if (!blob) return { name: "" };
-  const info = blob;
-  const name = (info.split("(主)")[0] ?? info).trim() || info.trim();
+  // Strip every HTML tag (<font>/<b>/<br>/…) and collapse whitespace/newlines.
+  const info = blob
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!info) return { name: "" };
+  const name = (info.split("(主)")[0] ?? info).trim() || info;
   const slot: CourseSlot = { name };
 
   const classIdx = info.indexOf("上课信息：");
@@ -35,16 +40,16 @@ export function parseCourseSlot(blob: string | null | undefined): CourseSlot {
     const rest = info.slice(classIdx + "上课信息：".length);
     const teacherIdx = rest.indexOf("教师：");
     const classEnd = teacherIdx >= 0 ? teacherIdx : rest.length;
-    const room = rest.slice(0, classEnd).trim();
+    // 上课信息 text is like "11-15周 每周 二教203" — the room is the LAST token
+    // (the leading tokens are week-pattern noise). Drop a trailing comma.
+    const roomRaw = rest.slice(0, classEnd).trim().replace(/[,，]+$/, "");
+    const room = roomRaw.split(/\s+/).pop();
     if (room) slot.room = room;
     if (teacherIdx >= 0) {
       const teacherRest = rest.slice(teacherIdx + "教师：".length);
-      // Teacher name ends at the next space or the "<" marker.
-      const stop =
-        teacherRest.indexOf(" ") >= 0
-          ? teacherRest.indexOf(" ")
-          : teacherRest.indexOf("<");
-      const teacherEnd = stop >= 0 ? stop : teacherRest.length;
+      // Teacher name(s) end at the next 考试信息 marker, else end of string.
+      const examIdx = teacherRest.indexOf("考试信息");
+      const teacherEnd = examIdx >= 0 ? examIdx : teacherRest.length;
       const teacher = teacherRest.slice(0, teacherEnd).trim();
       if (teacher) slot.teacher = teacher;
     }

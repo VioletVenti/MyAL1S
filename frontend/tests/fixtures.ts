@@ -15,14 +15,17 @@ export const fixtures: Record<string, unknown> = {
       nowXnxq: { xndxq: "2025-20262" },
       zc: 1,
       course: [
-        // period 1 (08:00): Mon + Wed
-        { mon: { courseName: "高等数学(主) 理教101 上课信息：周一1-2节 理教101 教师：张三 考试信息：期末" }, wed: { courseName: "高等数学(主) 理教101 上课信息：周三1-2节 理教101 教师：张三" } },
+        // period 1 (08:00): Mon + Wed — real HTML blob shape
+        { mon: { courseName: "<b>高等数学(主)<br>上课信息：1-15周 每周 理教101 教师：张三 考试信息：期末" }, wed: { courseName: "高等数学(主) 上课信息：周三1-2节 理教101 教师：张三" } },
         // period 2 (09:00): same course continues
-        { mon: { courseName: "高等数学(主) 理教101 上课信息：周一1-2节 理教101 教师：张三" }, wed: { courseName: "高等数学(主) 理教101 上课信息：周三1-2节 理教101 教师：张三" } },
+        { mon: { courseName: "高等数学(主) 上课信息：1-15周 每周 理教101 教师：张三" }, wed: { courseName: "高等数学(主) 上课信息：周三1-2节 理教101 教师：张三" } },
         {}, // period 3 empty
         {}, // period 4 empty
         // period 5 (13:00): Tue 线性代数
-        { tue: { courseName: "线性代数(主) 二教105 上课信息：周二5节 二教105 教师：李四" } },
+        { tue: { courseName: "线性代数(主) 上课信息：周二5节 二教105 教师：李四" } },
+        {}, {}, {}, {}, // periods 6-9 empty
+        // period 12 (21:40): Mon 逻辑导论 — exercises the period-12 mapping
+        { mon: { courseName: "逻辑导论(主) 上课信息：1-15周 每周 理教202 教师：丁一峰" } },
       ],
     },
   },
