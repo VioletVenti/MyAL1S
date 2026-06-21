@@ -1,6 +1,6 @@
 """The persistence layer (**Seam 5**) — a single embedded SQLite file.
 
-Holds four domains behind one async connection:
+Holds five domains behind one async connection:
 
 - **stars** — a user-curated promotion: an assignment or announcement the user
   flagged as important/undone, so it surfaces in the 待办 module and on the
@@ -16,6 +16,10 @@ Holds four domains behind one async connection:
 - **conversations / messages** — persisted multi-turn chat history. Each message
   row carries the serialized pydantic-ai `ModelMessage` list slice so a thread
   can be resumed exactly via `message_history=`.
+- **snapshots** — a generic key→envelope cache. The deterministic routes write a
+  snapshot on every successful live fetch and read it back as a **stale
+  fallback** when the live call returns `needs_otp` / `error` — so the dashboard
+  still shows the last good data after a backend restart or when not logged in.
 
 **Why one wide module, not four tiny ones:** the deep core — one connection, one
 schema-init, one file path — is shared. Splitting into StarStore / ItemStore /
@@ -72,6 +76,12 @@ CREATE TABLE IF NOT EXISTS seen_ids (
     source  TEXT NOT NULL,
     item_id TEXT NOT NULL,
     PRIMARY KEY (source, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+    key        TEXT PRIMARY KEY,
+    payload    TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -299,6 +309,50 @@ class Store:
         )
         await self._db.commit()
 
+    # ---- snapshots (cached envelopes) -------------------------------------
+    # A generic key→envelope cache. The deterministic routes write a snapshot on
+    # every successful live fetch and read it back as a stale fallback when the
+    # live call returns needs_otp / error — so the dashboard still shows the
+    # last good data after a backend restart or when not logged in. The Store
+    # treats payloads as opaque JSON blobs; it knows nothing about their shape.
+
+    async def put_snapshot(self, key: str, payload: Any) -> None:
+        """Upsert a cached envelope under `key`. `payload` is JSON-serialized."""
+        import json as _json
+
+        await self._c.execute(
+            """INSERT INTO snapshots (key, payload, fetched_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 payload = excluded.payload,
+                 fetched_at = excluded.fetched_at""",
+            (key, _json.dumps(payload, ensure_ascii=False), _now()),
+        )
+        await self._db.commit()
+
+    async def get_snapshot(self, key: str) -> dict | None:
+        """Return `{payload, fetched_at}` for a cached key, or None if absent.
+        `payload` is the parsed envelope (a dict)."""
+        import json as _json
+
+        cur = await self._c.execute(
+            "SELECT payload, fetched_at FROM snapshots WHERE key = ?", (key,)
+        )
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        raw, fetched_at = row
+        try:
+            payload = _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+        return {"payload": payload, "fetched_at": fetched_at}
+
+    async def snapshot_keys(self) -> list[str]:
+        """All cached keys (handy for a health glance / debugging)."""
+        cur = await self._c.execute("SELECT key FROM snapshots ORDER BY key")
+        return [r[0] for r in await cur.fetchall()]
+
     # ---- conversations ----------------------------------------------------
 
     async def create_conversation(self, *, title: str | None = None) -> str:
@@ -391,7 +445,7 @@ class Store:
     async def counts(self) -> dict[str, int]:
         """Row counts per table — handy for tests and a health glance."""
         out: dict[str, int] = {}
-        for table in ("stars", "custom_items", "seen_ids", "conversations", "messages"):
+        for table in ("stars", "custom_items", "seen_ids", "snapshots", "conversations", "messages"):
             cur = await self._c.execute(f"SELECT COUNT(*) FROM {table}")
             out[table] = (await cur.fetchone())[0]
         return out

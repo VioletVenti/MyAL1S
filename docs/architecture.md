@@ -130,9 +130,28 @@ timestamps). Two layers clean it before it reaches the DOM:
 
 The app has no router; `App.tsx` holds a `view: "main" | "directory"` state
 toggled by a segmented control in the header. **Main** = the glanceable subset
-(Calendar + 待办 + 新到通知); **Directory** = the full listing panels
-(作业/课程通知/材料/回放/成绩 + the four 待接入 placeholders). The chat sidebar
-is a sibling of `<Dashboard>`, independent of the view.
+(Calendar + 待办 + 新到通知); **Directory** = a **left sidebar nav + a single
+selected module** on the right (作业/课程通知/材料/回放/成绩 + the four 待接入
+placeholders). Clicking a nav item swaps which module is mounted — only one is
+rendered at a time (not a grid). List modules paginate (上一页/下一页). The chat
+sidebar is a sibling of `<Dashboard>`, independent of the view.
+
+## Snapshot cache (Increment E) — survives restarts + prefetch on login
+
+The deterministic routes maintain a snapshot cache in the **Store** (`snapshots`
+table, Seam 5): on every successful live fetch they write the envelope; on a
+`needs_otp` / `error` (not logged in, or the network is down) they serve the
+last good snapshot back **marked `stale`** (with `fetched_at`), so the dashboard
+still shows yesterday's data after a backend restart or when not logged in. The
+frontend mirrors the last envelope to `localStorage` for an instant first paint
+on browser refresh, and renders a "离线缓存（上次更新 …）" badge on stale data.
+
+On a fully-connected login, `/api/login` kicks off a **background prefetch**
+that warms all six sources into the snapshot cache (detached task — never blocks
+the login response), so the directory modules are populated immediately
+regardless of which view the client has mounted. `warm_snapshots`
+(`routes/session.py`) reuses the same `_cached` helper as the deterministic
+routes, so prefetch and per-route fallback stay in sync.
 
 ## Login: one OTP for both services
 

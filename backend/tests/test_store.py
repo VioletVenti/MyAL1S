@@ -119,6 +119,23 @@ async def test_conversation_cascade_deletes_messages(store):
     assert await store.get_history(cid) == []
 
 
+# ---- snapshots (cached envelopes) ---------------------------------------
+
+
+async def test_snapshot_put_get_upsert_and_keys(store):
+    assert await store.get_snapshot("assignments") is None
+    await store.put_snapshot("assignments", {"status": "ok", "data": {"x": 1}})
+    got = await store.get_snapshot("assignments")
+    assert got is not None and got["payload"]["data"]["x"] == 1 and got["fetched_at"]
+    # Upsert overwrites.
+    await store.put_snapshot("assignments", {"status": "ok", "data": {"x": 2}})
+    assert (await store.get_snapshot("assignments"))["payload"]["data"]["x"] == 2
+    await store.put_snapshot("grades", {"status": "ok", "data": []})
+    keys = await store.snapshot_keys()
+    assert "assignments" in keys and "grades" in keys
+    assert (await store.counts())["snapshots"] == 2
+
+
 # ---- schema idempotency ---------------------------------------------------
 
 

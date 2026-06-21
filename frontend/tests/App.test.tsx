@@ -48,23 +48,28 @@ describe("<App/> renders without blanking", () => {
     });
   });
 
-  it("switches to the directory view and renders the listing panels", async () => {
+  it("directory view shows a left nav and renders ONE selected module at a time", async () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole("heading", { name: /待办/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    // The default-selected module (作业) shows; the nav lists all modules.
+    await waitFor(() => expect(screen.getByRole("heading", { name: /作业/ })).toBeInTheDocument());
+    // The nav buttons are present (clicking switches the shown module).
+    expect(screen.getByRole("button", { name: "课程材料" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "课程材料" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "课程材料" })).toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: "课程通知" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "课程回放" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "成绩" })).toBeInTheDocument();
+    // Only the selected module's panel is mounted — 成绩 is NOT shown now.
+    expect(screen.queryByRole("heading", { name: "成绩" })).not.toBeInTheDocument();
   });
 
-  it("shows the 待接入 placeholders in the directory view", async () => {
+  it("directory nav's deferred group shows the 待接入 placeholder when clicked", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "教务通知" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "教务通知" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "教务通知" })).toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: "北大树洞" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "文档库" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "记忆" })).toBeInTheDocument();
+    // The deferred placeholder body is shown (at least one "待接入" element).
+    expect(screen.getAllByText(/待接入/).length).toBeGreaterThan(0);
   });
 });
 
