@@ -195,28 +195,32 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
             const axisHeight = daySpan * PX_PER_MIN + GAP_MIN;
             return (
               <>
-                {/* ---- day-header row ---- */}
-                <div className="cal-head-row">
-                  <span className="cal-corner">时间</span>
-                  {dates.map((d, i) => {
-                    const label = WEEKDAYS[i][1];
-                    const dKey = dateKey(d);
-                    const dayItems = itemsByDate[dKey] ?? [];
-                    const today = todayUtcKey() === dKey;
-                    return (
-                      <button
-                        key={dKey}
-                        className={`cal-head${today ? " today" : ""}${dayItems.length ? " has-items" : ""}`}
-                        onClick={() => setOpenDay(openDay === dKey ? null : dKey)}
-                        title={dayItems.length ? `${dayItems.length} 个待办/星标` : ""}
-                      >
-                        <strong>{label}</strong>
-                        <span className="cal-date">{d.getUTCMonth() + 1}/{d.getUTCDate()}</span>
-                        {dayItems.length > 0 && <span className="cal-badge">★{dayItems.length}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* day-header row + time-axis grid share ONE scroll container so
+                    horizontal scroll keeps the weekday headers aligned with the
+                    columns (and the scrollbar sits under both, not between). */}
+                <div className="cal-scroll">
+                  {/* ---- day-header row ---- */}
+                  <div className="cal-head-row">
+                    <span className="cal-corner">时间</span>
+                    {dates.map((d, i) => {
+                      const label = WEEKDAYS[i][1];
+                      const dKey = dateKey(d);
+                      const dayItems = itemsByDate[dKey] ?? [];
+                      const today = todayUtcKey() === dKey;
+                      return (
+                        <button
+                          key={dKey}
+                          className={`cal-head${today ? " today" : ""}${dayItems.length ? " has-items" : ""}`}
+                          onClick={() => setOpenDay(openDay === dKey ? null : dKey)}
+                          title={dayItems.length ? `${dayItems.length} 个待办/星标` : ""}
+                        >
+                          <strong>{label}</strong>
+                          <span className="cal-date">{d.getUTCMonth() + 1}/{d.getUTCDate()}</span>
+                          {dayItems.length > 0 && <span className="cal-badge">★{dayItems.length}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
 
                 {/* ---- time-axis grid ---- */}
                 <div className="cal-tt">
@@ -263,6 +267,7 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                       </div>
                     );
                   })}
+                </div>
                 </div>
 
                 {/* ---- expanded day's todo/notice items ---- */}

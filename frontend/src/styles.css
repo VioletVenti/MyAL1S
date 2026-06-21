@@ -411,15 +411,22 @@ button:disabled {
 
 /* ---- weekly calendar (time-axis timetable) ---- */
 
+/* shared scroll container for the day-header row + the time-axis grid, so the
+   weekday headers scroll in lockstep with the columns and the scrollbar sits
+   below both (not between them, which desynced 周六/周日 + the panel below). */
+.cal-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.4rem;
+}
+
 /* day-header row: a corner cell + 7 day headers. */
 .cal-head-row {
   display: grid;
-  grid-template-columns: 3.2rem repeat(7, 1fr);
+  grid-template-columns: 3.6rem repeat(7, minmax(5.5rem, 1fr));
   gap: 0.3rem;
   margin-bottom: 0.4rem;
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  min-width: 40rem;
 }
 .cal-corner {
   font-size: 0.72rem;
@@ -475,9 +482,9 @@ button:disabled {
    by their wall-clock start/end minutes (top/height). */
 .cal-tt {
   display: grid;
-  grid-template-columns: 3.2rem repeat(7, 1fr);
+  grid-template-columns: 3.6rem repeat(7, minmax(5.5rem, 1fr));
   gap: 0.3rem;
-  overflow-x: auto;
+  min-width: 40rem;
 }
 .cal-axis {
   position: relative;
@@ -487,23 +494,26 @@ button:disabled {
 .cal-slot-label {
   position: absolute;
   left: 0;
-  right: 0.25rem;
+  right: 0.2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding-top: 0.15rem;
+  justify-content: center;
+  gap: 0.05rem;
   text-align: center;
+  /* faint separator under each slot so the rows read as a list */
+  border-top: 1px dashed var(--border);
 }
 .cal-slot-no {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: var(--c-calendar);
+  line-height: 1;
 }
 .cal-slot-time {
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   color: var(--muted);
-  line-height: 1.1;
+  line-height: 1.05;
   white-space: nowrap;
 }
 .cal-col {
