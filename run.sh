@@ -10,6 +10,7 @@
 #  Usage:
 #    ./run.sh            start the stack (build/installs if anything is missing)
 #    ./run.sh stop       stop & tear down the session + free the ports
+#    ./run.sh restart    stop + start
 #    ./run.sh attach     attach to the running session (≡ tmux attach -t myal1s)
 #
 #  Inside tmux:  Ctrl+b 0/1/2  switch windows ·  Ctrl+b d  detach ·  exit each
@@ -36,7 +37,7 @@ ok()    { printf "${GREEN}[ok]${R}  %s\n" "$*"; }
 warn()  { printf "${YELLOW}[!]${R}  %s\n" "$*" >&2; }
 die()   { printf "${RED}[x]${R}   %s\n" "$*" >&2; exit 1; }
 
-require() { command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"; }
+require() { command -v "$1" >/dev/null 2>&1 || die "${2:-missing required command: $1}"; }
 
 # ----------------------------------------------------------------------------
 stop_stack() {
@@ -57,7 +58,7 @@ stop_stack() {
 # ----------------------------------------------------------------------------
 preflight() {
   require tmux
-  require cargo || die "cargo not found (install Rust to build pku3b)"
+  require cargo "cargo not found (install Rust to build pku3b)"
   require python3
   require npm
 
