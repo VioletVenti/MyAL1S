@@ -17,8 +17,9 @@ export interface CourseSlot {
   /** Whether this slot runs every week, odd weeks only (单周), or even only (双周).
    *  Parsed from the blob's 上课信息 section. */
   parity: WeekParity;
-  /** The school-week range parsed from the blob (e.g. 1-15), if present. */
-  weekRange?: [number, number];
+  /** The set of school-weeks this slot is active (expanded from ranges like
+   *  "1-15" or "9-9,11-11,13-13"). Empty = every week in the semester. */
+  weeks: number[];
 }
 
 /**
@@ -31,15 +32,15 @@ export interface CourseSlot {
  * teacher from 教师：. Defensive: any unexpected shape → {name: trimmed blob}.
  */
 export function parseCourseSlot(blob: string | null | undefined): CourseSlot {
-  if (!blob) return { name: "", parity: "all" };
+  if (!blob) return { name: "", parity: "all", weeks: [] };
   // Strip every HTML tag (<font>/<b>/<br>/…) and collapse whitespace/newlines.
   const info = blob
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!info) return { name: "", parity: "all" };
+  if (!info) return { name: "", parity: "all", weeks: [] };
   const name = (info.split("(主)")[0] ?? info).trim() || info;
-  const slot: CourseSlot = { name, parity: "all" };
+  const slot: CourseSlot = { name, parity: "all", weeks: [] };
 
   const classIdx = info.indexOf("上课信息：");
   if (classIdx >= 0) {
@@ -47,9 +48,20 @@ export function parseCourseSlot(blob: string | null | undefined): CourseSlot {
     const teacherIdx = rest.indexOf("教师：");
     const classEnd = teacherIdx >= 0 ? teacherIdx : rest.length;
     const classInfo = rest.slice(0, classEnd).trim().replace(/[,，]+$/, "");
-    // Parse week range + parity from "11-15周 单周 二教203" style text.
-    const rangeMatch = classInfo.match(/(\d+)\s*-\s*(\d+)\s*周/);
-    if (rangeMatch) slot.weekRange = [+rangeMatch[1], +rangeMatch[2]];
+    // Parse ALL week ranges from the blob — supports single range ("1-15周")
+    // AND multi-segment lists ("9-9,11-11,13-13周"). Expand each N-M into a
+    // full set of active weeks. The pattern matches before "周".
+    const weekPart = classInfo.match(/([\d,\s\-]+)\s*周/);
+    if (weekPart) {
+      const weeks = new Set<number>();
+      for (const seg of weekPart[1].split(/[,，]+/)) {
+        const m = seg.match(/(\d+)\s*-\s*(\d+)/);
+        if (m) {
+          for (let w = +m[1]; w <= +m[2]; w++) weeks.add(w);
+        }
+      }
+      slot.weeks = [...weeks].sort((a, b) => a - b);
+    }
     if (/单周/.test(classInfo)) slot.parity = "odd";
     else if (/双周/.test(classInfo)) slot.parity = "even";
     // Room = last whitespace token.

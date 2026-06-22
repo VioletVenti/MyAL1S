@@ -87,7 +87,7 @@ interface Slot {
   room?: string;
   teacher?: string;
   parity: WeekParity;
-  weekRange?: [number, number];
+  weeks: number[];
 }
 
 // ---- period → wall-clock time map (PKU fixed convention) ----------------
@@ -143,7 +143,7 @@ function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
       if (!raw) return;
       const parsed = parseCourseSlot(raw);
       if (parsed.name)
-        out[key].push({ period: idx + 1, name: parsed.name, room: parsed.room, teacher: parsed.teacher, parity: parsed.parity, weekRange: parsed.weekRange });
+        out[key].push({ period: idx + 1, name: parsed.name, room: parsed.room, teacher: parsed.teacher, parity: parsed.parity, weeks: parsed.weeks });
     });
   });
   return out;
@@ -219,8 +219,9 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
     const filtered: Record<string, Slot[]> = {};
     for (const [key] of WEEKDAYS) {
       filtered[key] = (allClasses[key] ?? []).filter((c) => {
-        // Week range: skip if outside 1-N周
-        if (c.weekRange && (sw < c.weekRange[0] || sw > c.weekRange[1])) return false;
+        // Week filter: if the slot has a specific active-weeks set, the viewed
+        // school-week must be in it. Empty = every week (no range in blob).
+        if (c.weeks.length > 0 && !c.weeks.includes(sw)) return false;
         // Parity: 单周 (odd) only on odd school weeks, 双周 (even) on even
         if (c.parity === "odd" && sw % 2 === 0) return false;
         if (c.parity === "even" && sw % 2 === 1) return false;

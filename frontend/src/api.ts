@@ -26,13 +26,22 @@ async function getEnvelope<T>(path: string): Promise<Envelope<T>> {
 }
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as T;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(`/api${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(id);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as T;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------
