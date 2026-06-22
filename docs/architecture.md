@@ -65,6 +65,7 @@ enforced structurally: `routes/deterministic.py` imports neither the agent nor
 | 4 | **McpGateway** | `backend/app/mcp_gateway.py` | `call_tool(name, args)`, `agent` | the `pku3b mcp` subprocess lifecycle, MCP handshake, result unwrapping |
 | 5 | **Store** (P1) | `backend/app/store.py` | grouped methods: stars / custom-items / seen-ids / conversations | the entire SQLite lifecycle (aiosqlite connection, schema init, all SQL + row mapping, pydantic-ai message serialization) |
 | 6 | **Composer** (P1) | `backend/app/composer.py` | `todo()`, `week(iso_week)`, `new_notices()`, `mark_seen()` | the multi-source join: merging live MCP-tool data with Store state into the dashboard shapes; seen-id diffing; ISO-week date-range filtering |
+| 7 | **PermissionGate** (P2) | `backend/app/permissions.py` | `level_for(group)`, `set_level(...)`, `create_approval(...)`, `decide(id, decision)`, `execute_now(...)` | the write-side dual of the Composer: gates writes through the matrix and dispatches them. Two channels (agent two-phase + UI implicit-confirm) share ONE `_dispatch` site; matrix levels; approval lifecycle; file_id→path resolution. Hides all write policy + the out-of-band execution |
 
 Why these are *real* seams (not speculative): each has two adapters across it.
 Seam 1 is driven by the stdio transport **and** by in-process unit tests (and
@@ -153,6 +154,66 @@ regardless of which view the client has mounted. `warm_snapshots`
 (`routes/session.py`) reuses the same `_cached` helper as the deterministic
 routes, so prefetch and per-route fallback stay in sync.
 
+## Write path (P2) — the PermissionGate, two channels, one dispatch
+
+P2 adds the write side. The deep module is the **PermissionGate** (Seam 7) — the
+write-side dual of the Composer (both hold `store, gateway`; the Composer joins
+reads, the gate gates + dispatches writes). Two channels reach it, and **both
+funnel through one private `_dispatch`** — the only place a write is sent to the
+teaching network, so the UI and agent paths can never diverge on what reaches
+Blackboard.
+
+```
+UI direct (implicit confirm)            Agent (计划1 two-phase REST)
+  作业行「交作业」→ file                  聊天 📎 附件 → file_id
+  POST /api/submit (multipart)           "把这个交到作业X" + attachment_file_id
+        │                                       │ chat.py injects file_id into the msg
+        │                                       ▼
+        │                              agent.run → submit_assignment(assignment_id, file_id)
+        │                              (a LOCAL FunctionToolset tool, file_id-based; the
+        │                               path-based MCP primitive is FilteredToolset-hidden)
+        │                                       │ gate.create_approval → pending row
+        │                                       ▼ agent.run ENDS (no deferred-run resume)
+        │                              POST /api/approvals/{id}/decide  ← 待审批 panel
+        ▼                                       ▼
+   ┌────────────────────────────────────────────────────────┐
+   │  PermissionGate.create_approval / decide / execute_now │
+   │   matrix: deny → block; confirm → pending/execute;     │
+   │            auto → reserved (P3)                         │
+   │   ── single private _dispatch(tool_name, args) ──┐     │
+   └──────────────────────────────────────────────────┼─────┘
+                                  file_id → absolute path (Uploads helper)
+                                  ▼ gateway.call_tool("submit_assignment",
+                                                       {assignment_id, file_path})
+                  pku3b MCP `submit_assignment` (path primitive; hidden from agent)
+                                  ▼ submit_file → Blackboard
+```
+
+**计划1 (two-phase, REST, no WebSocket).** The agent's write tool calls
+`create_approval`, which inserts a `pending` row and returns a `pending_approval`
+envelope; **`agent.run` then ends** (the native pydantic-ai deferred-run resume
+is deliberately NOT used — it is fragile across persistence/restart). The user
+confirms in the 待审批 panel → `decide(id, "confirm")` → `_dispatch` runs the write
+out-of-band and records `executed`/`failed`. The decide lock + the Store's
+status-guarded transition make a double-decide a no-op (no double dispatch).
+
+**UI direct = implicit confirm.** The user clicked + picked a file, so
+`execute_now` dispatches immediately — but it still checks the matrix (deny
+blocks) and writes an `executed`/`failed` row for a unified audit trail.
+
+**file_id, never a path.** A pending approval stores a `file_id` (from the
+`Uploads` helper, `backend/app/uploads.py`) — NEVER a raw path. `_dispatch`
+resolves `file_id` → absolute path just-in-time, so paths neither persist in the
+DB nor reach the LLM. The path-based `submit_assignment` MCP primitive is the
+execution target, reached via `gateway.call_tool`; it is hidden from the agent by
+a `FilteredToolset` over the MCP server, and the agent instead gets a local
+`submit_assignment(assignment_id, file_id)` proxy.
+
+**Matrix.** Per semantic-group level: `deny` (block) / `confirm` (default) /
+`auto` (reserved for P3 file-less writes; rejected for now). Granularity is the
+semantic group, not the tool. The gate exposes `known_groups()` (P2: just
+`assignment_submission`); the settings page lists them.
+
 ## Login: one OTP for both services
 
 `login(otp)` (`tools.rs`) spends the single OTP on the **portal**; that login
@@ -186,8 +247,9 @@ why pku3b is a *separate MCP server subprocess*, not a linked library.
 
 Write tools / permission matrix / OTP UI round-trip (P2), SQLite persistence
 (P1), external forums (P3), credential encryption (P4), streaming chat — the
-post-P0 roadmap. (P1 has since added the Store + Composer + dashboard routes;
-the rest stands.)
+post-P0 roadmap. (P1 added the Store + Composer + dashboard routes; P2 added the
+PermissionGate + the 交作业 write slice — see "Write path (P2)" above. External
+forums, credential encryption, and streaming chat remain.)
 
 ## Deferred sources (P3) — interfaces designed, not yet built
 

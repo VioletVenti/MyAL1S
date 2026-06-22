@@ -78,8 +78,9 @@ case (`pku3b/src/mcp/tools.rs`), and both consumers (dashboard + agent) pick it 
 automatically.
 
 1. **Register it** in `tool_specs()` — name, title, description, input JSON
-   Schema, `read_only`. Keep `read_only: true` unless it has side effects (P0 is
-   read-only; side-effecting tools are gated by the P2 permission matrix).
+   Schema, `read_only`. Keep `read_only: true` for read tools. If it has side
+   effects, set `read_only: false` and follow **"How to add a write tool"** below
+   (the gate + agent-hiding pattern); do NOT just expose it raw.
 
 2. **Implement it** as a private `async fn` on `ToolRegistry`, returning the
    `ok(...)` / `needs_otp(...)` envelope. Reuse `self.cfg()` + `auth::login_*`
@@ -102,6 +103,39 @@ automatically.
 
 That's the whole loop. The registry is the single source of tool metadata; the
 transport and the agent are generic over it.
+
+## How to add a write tool  ← P2+ (side-effecting tools)
+
+A write tool (交作业 today; 选课 / 树洞发帖 in P3) touches three layers. The pattern
+keeps the path-based execution primitive off the agent and routes both the UI and
+agent channels through one gate.
+
+1. **The execution primitive (pku3b MCP).** Add the tool in `pku3b/src/mcp/tools.rs`
+   exactly like a read tool, but with `read_only: false`. It takes whatever the
+   underlying `api::*` method needs — for `submit_assignment` that is a
+   server-local `file_path` (the `pku3b mcp` process reads it). This tool is the
+   **single dispatch target** the gate calls via `gateway.call_tool`. Commit +
+   push in the `pku3b` submodule, then bump the gitlink in MyAL1S.
+
+2. **The gate dispatch + semantic group (`backend/app/permissions.py`).**
+   - Add the tool name to `_WRITE_TOOLS`.
+   - Add a branch to `_dispatch` that maps the stored args (which carry a
+     `file_id`, **never** a raw path) to the concrete MCP call, resolving
+     `file_id` → absolute path via the `Uploads` helper just-in-time.
+   - Add the semantic group to `KNOWN_GROUPS` (e.g. `treehole_post`).
+
+3. **The agent proxy + hiding (`backend/app/mcp_gateway.py`).** The agent must
+   NOT see the path-based primitive. In `attach_write_toolset`, add a local
+   `FunctionToolset` tool taking `file_id` (not `file_path`) that calls
+   `gate.create_approval(...)`; the `FilteredToolset` already drops any tool
+   named like the primitive — add the new primitive's name to its drop condition.
+
+The matrix, the two-phase approval lifecycle, the UI implicit-confirm audit row,
+and the decide lock are all generic — a new write tool inherits them by joining a
+semantic group. No route changes unless the tool needs a new entry point (the UI
+direct path); the agent path needs no new route (`/approvals/:id/decide` is
+generic). `auto` level support is reserved for P3 (file-less writes); the gate
+rejects it for now.
 
 ## Store / Composer (P1)
 
