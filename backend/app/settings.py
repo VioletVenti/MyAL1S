@@ -32,6 +32,37 @@ class Settings(BaseSettings):
     # Optional explicit pku3b config path (passed as `--config`); None = default.
     pku3b_config: str | None = None
 
+    # P1 persistence: a single embedded SQLite file (stars / custom items /
+    # seen-ids / conversations). Relative paths resolve against the backend's
+    # CWD (uvicorn is run from backend/). The file is gitignored (*.sqlite).
+    sqlite_path: str = "myal1s.sqlite"
+
+    # P1 chat model picker — a registry of selectable models, comma-separated
+    # `Label:model-string` pairs. The first entry is the default. Model strings
+    # follow the same provider-prefixed form as llm_model (e.g.
+    # `anthropic:claude-opus-4-8`, `openai:kimi-k2.6`). Example:
+    #   "Claude:anthropic:claude-opus-4-8, Kimi:openai:kimi-k2.6"
+    chat_models: str = "Claude:anthropic:claude-opus-4-8"
+
+    @property
+    def chat_model_entries(self) -> list[tuple[str, str]]:
+        """Parse `chat_models` into `[(label, model_string), ...]`.
+
+        Each entry is `Label:model-string`; the colon-split is on the FIRST
+        colon so a model string like `anthropic:claude-opus-4-8` stays intact.
+        Blank entries are skipped.
+        """
+        entries: list[tuple[str, str]] = []
+        for raw in self.chat_models.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            label, sep, model = raw.partition(":")
+            if not sep or not model:
+                continue
+            entries.append((label.strip(), model.strip()))
+        return entries
+
 
 @lru_cache
 def get_settings() -> Settings:

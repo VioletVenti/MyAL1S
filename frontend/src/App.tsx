@@ -1,7 +1,8 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import ChatBox from "./ChatBox";
-import Dashboard from "./Dashboard";
+import Dashboard, { type DashboardView } from "./Dashboard";
 import { login } from "./api";
+import { StarProvider } from "./stars";
 
 /** One-time login: enter the OTP once at startup; the session is then reused. */
 function LoginBar({ onConnected }: { onConnected: () => void }) {
@@ -23,7 +24,7 @@ function LoginBar({ onConnected }: { onConnected: () => void }) {
       if (portal && blackboard) {
         setMsg({ kind: "ok", text: "已全部连接（课表 + 作业/成绩）✓" });
       } else if (portal) {
-        setMsg({ kind: "info", text: "课表已连接 ✓ 作业/成绩请再输一次新令牌 (OTP) 登录。" });
+        setMsg({ kind: "info", text: "课表已连接 ✓ 作业/成绩请再输一次新令牌 (OTP)。" });
       } else if (blackboard) {
         setMsg({ kind: "info", text: "作业/成绩已连接 ✓ 课表请再输一次新令牌 (OTP)。" });
       } else {
@@ -56,23 +57,59 @@ function LoginBar({ onConnected }: { onConnected: () => void }) {
 }
 
 export default function App() {
-  // Bumping this remounts the dashboard, forcing its panels to re-fetch.
+  // Bumping refreshKey makes the dashboard panels + calendar re-fetch.
   const [refreshKey, setRefreshKey] = useState(0);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [view, setView] = useState<DashboardView>("main");
+  const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(bump, 60_000); // pku3b caches 1h, so repeated calls are cheap
+    return () => clearInterval(id);
+  }, [autoRefresh, bump]);
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>MyAL1S</h1>
-        <span className="subtitle">PKU 校园信息终端助手</span>
-      </header>
-      <LoginBar onConnected={() => setRefreshKey((k) => k + 1)} />
-      <main className="layout">
-        <Dashboard key={refreshKey} />
-        <aside className="sidebar">
-          <h2>对话</h2>
-          <ChatBox />
-        </aside>
-      </main>
-    </div>
+    <StarProvider onChange={bump}>
+      <div className="app">
+        <header className="app-header">
+          <h1>MyAL1S</h1>
+          <span className="subtitle">PKU 校园信息终端助手</span>
+          <span className="toolbar">
+            <span className="seg">
+              <button
+                className={view === "main" ? "active" : "ghost"}
+                onClick={() => setView("main")}
+                title="主界面：周历 + 待办 + 新到通知"
+              >
+                主界面
+              </button>
+              <button
+                className={view === "directory" ? "active" : "ghost"}
+                onClick={() => setView("directory")}
+                title="目录：作业 / 通知 / 材料 / 回放 / 成绩 / 更多"
+              >
+                目录
+              </button>
+            </span>
+            <button
+              className={autoRefresh ? "" : "ghost"}
+              onClick={() => setAutoRefresh((v) => !v)}
+              title="每 60 秒自动刷新面板"
+            >
+              {autoRefresh ? "自动刷新：开" : "自动刷新：关"}
+            </button>
+          </span>
+        </header>
+        <LoginBar onConnected={bump} />
+        <main className="layout">
+          <Dashboard view={view} refreshKey={refreshKey} bump={bump} />
+          <aside className="sidebar">
+            <h2>对话</h2>
+            <ChatBox />
+          </aside>
+        </main>
+      </div>
+    </StarProvider>
   );
 }

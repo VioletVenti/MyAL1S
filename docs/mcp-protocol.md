@@ -25,15 +25,35 @@ Errors: unknown method → JSON-RPC `-32601`; unknown tool → `-32602`; parse e
 → `-32700`. A tool that *runs but fails* returns a normal result with
 `isError: true` (clients like pydantic-ai surface this as an exception).
 
-## Tools (P0, all read-only)
+## Tools (read-only data tools; P0 + P1)
 
 | name | arguments | `data` payload |
 |------|-----------|----------------|
 | `get_course_table` | `{}` | portal course-table JSON |
-| `list_assignments` | `{ include_finished?: bool = false }` | `{ include_finished, assignments: [{course, title, deadline, deadline_raw, submitted, last_attempt}] }`, sorted by deadline |
+| `list_assignments` | `{ include_finished?: bool = false }` | `{ include_finished, assignments: [{id, course, title, deadline, deadline_raw, submitted, last_attempt}] }`, sorted by deadline |
 | `get_grades` | `{}` | `{ grades: [{course, item, score, possible}] }` |
+| `get_announcements` | `{}` | `{ announcements: [{id, course, title, time, descriptions[], attachments[]}] }`, sorted newest-first by `time` (items without a time go last); `attachments` is an array of attachment **names** |
+| `list_course_materials` | `{}` | `{ materials: [{course, ccid, title, kind, attachment_count}] }` — content-tree items **excluding** assignment/announcement kinds (those have their own tools); `ccid` is `course_id:content_id`, `kind` is a **Chinese label** (文档/文件/文件夹/音频/测试/其它 — mapped from `CourseContentKind`, never a Rust Debug name), `attachment_count` is an integer |
+| `list_videos` | `{}` | `{ videos: [{id, course, title, time}] }`, sorted newest-first |
 
-`submit_file` (the only side-effecting pku3b API) is **not** exposed.
+`id` (on assignments, announcements, videos) is a **stable** per-item identity — callers use it to star / dedupe / detect "new since last visit". `submit_file` (the only side-effecting pku3b API) is **not** exposed.
+
+## Future tools (P3 — NOT yet implemented)
+
+These are **contracts the P1 dashboard's 教务通知 / 北大树洞 placeholders are
+shaped against**. They are not implemented today (no code path), but documented
+here so the P3 scraper lands against a fixed shape. They will be added to the
+`pku3b` MCP server following the standard "How to add a new MCP tool" loop.
+
+| name (planned) | arguments | `data` payload |
+|------|-----------|----------------|
+| `get_dean_updates` | `{}` | `{ updates: [{id, title, time, category, url, summary}] }` — dean's-office notices |
+| `list_treehole_posts` | `{ tag?: string, limit?: int }` | `{ posts: [{id, title, body, author, time, tags[], reply_count}] }` — 北大树洞 (IAAA reuse) |
+| `get_treehole_post` | `{ id: string }` | `{ post: {id, title, body, author, time, tags[], reply_count} }` |
+
+All three are planned read-only. Authentication for 树洞 is expected to reuse
+the IAAA trusted-device flow already established by the `login` tool; the exact
+appid/endpoints need capture-and-reverse-engineering (TBD, plan §7).
 
 ## Result envelope
 

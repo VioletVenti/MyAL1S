@@ -10,22 +10,42 @@ the one invariant that must never break.
 │   Dashboard (deterministic)        ChatBox (agent)         │
 └───────┬───────────────────────────────────┬───────────────┘
         │ GET /api/course-table…             │ POST /api/chat
+        │ GET /api/todo|calendar|stars…      │ (model picker, history)
         │ (no LLM)                           │
 ┌───────▼───────────────────────────────────▼───────────────┐
 │ FastAPI backend (backend/)                                 │
 │   routes/deterministic.py          routes/chat.py          │
-│        │ gateway.call_tool(...)         │ gateway.agent.run │
-│        └──────────────┬─────────────────┘                  │
-│                  McpGateway (Seam 4)                       │
-│         one MCPServerStdio, shared by both paths           │
+│   routes/dashboard.py ──┐             │ gateway.agent.run  │
+│        │                │             │ (message_history)  │
+│        │ gateway.call_tool             └────────┬──────────┤
+│        │                │                      │          │
+│        │          Composer (Seam 6)            │          │
+│        │           join + diff + week-math      │          │
+│        │                │                      │          │
+│        └──────────────┬─┴──────────────────────┤          │
+│                  McpGateway (Seam 4)          │          │
+│         one MCPServerStdio, shared by all paths│          │
+│                        │                      │          │
+│                   Store (Seam 5) ◀────────────┘          │
+│         SQLite: stars / custom items / seen-ids /         │
+│         conversations + messages                          │
 └──────────────────────┬─────────────────────────────────────┘
                        │ newline JSON-RPC 2.0 over stdio
 ┌──────────────────────▼─────────────────────────────────────┐
 │ pku3b mcp  (pku3b/src/mcp/, Rust + compio)                 │
 │   transport (Seam 3) → ToolRegistry (Seam 1) → auth (Seam 2)│
-│   tools: get_course_table · list_assignments · get_grades  │
+│   tools: course_table · assignments · grades ·             │
+│          announcements · materials · videos · login        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> P1 added the **Store** (Seam 5) and the **Composer** (Seam 6) plus the
+> `routes/dashboard.py` deterministic path. The Composer joins live MCP-tool
+> data with persisted state (stars / custom items / seen-ids) into the 待办 /
+> weekly-calendar / 新到通知 shapes — still never through the LLM. The Store
+> also persists chat conversations + the pydantic-ai message slices so threads
+> can be reopened exactly (that path *does* touch the agent, in `routes/chat.py`
+> only).
 
 ## The invariant
 
@@ -43,6 +63,8 @@ enforced structurally: `routes/deterministic.py` imports neither the agent nor
 | 2 | **Prompt-free auth** | `pku3b/src/mcp/auth.rs` + `tools.rs::login` | `login_*() -> LoginOutcome::{Ready, NeedsOtp}`; `login(otp)` | cookie reuse, IAAA OAuth, OTP detection (returns `NeedsOtp` as **data**, never blocks), and the **one-OTP** orchestration (see below) |
 | 3 | **Transport** | `pku3b/src/mcp/transport.rs` | `serve(registry)` | newline JSON-RPC framing + method routing; a thin adapter with no domain logic |
 | 4 | **McpGateway** | `backend/app/mcp_gateway.py` | `call_tool(name, args)`, `agent` | the `pku3b mcp` subprocess lifecycle, MCP handshake, result unwrapping |
+| 5 | **Store** (P1) | `backend/app/store.py` | grouped methods: stars / custom-items / seen-ids / conversations | the entire SQLite lifecycle (aiosqlite connection, schema init, all SQL + row mapping, pydantic-ai message serialization) |
+| 6 | **Composer** (P1) | `backend/app/composer.py` | `todo()`, `week(iso_week)`, `new_notices()`, `mark_seen()` | the multi-source join: merging live MCP-tool data with Store state into the dashboard shapes; seen-id diffing; ISO-week date-range filtering |
 
 Why these are *real* seams (not speculative): each has two adapters across it.
 Seam 1 is driven by the stdio transport **and** by in-process unit tests (and
@@ -58,7 +80,78 @@ envelope back to the browser. No tokens spent.
 
 **Agent (chat):**
 `POST /api/chat` → `agent.run(message)` → the LLM decides which MCP tool(s) to
-call (same catalog) → synthesizes a Chinese answer → `{reply}`.
+call (same catalog) → synthesizes a Chinese answer → `{reply}`. P1: `model`
+overrides the agent's default (picker); `conversation_id` loads stored history
+(`message_history=`) and the new turn is persisted; the reply carries a
+`trace` of tool calls/results ("思考可见").
+
+**Dashboard (deterministic, P1):**
+`GET /api/todo` → `composer.todo()` returns the **undone-only** list: starred
+assignments/announcements enriched with live data (a live-and-submitted starred
+assignment is excluded) + custom items not marked done. `GET /api/calendar?week=`
+→ `composer.week()` is the **star-retention** view: it shows **every** starred +
+custom item whose anchor date falls in that ISO week, **regardless of
+submitted/done status** (a completed item still appears on its day — the calendar
+is distinct from 待办). `GET /api/new-notices` → `composer.new_notices()` diffs
+live assignment/announcement ids against the Store's seen-id watermark; `POST
+/api/new-notices/mark-seen` merges the current ids in. **All three dashboard
+routes wrap the composer output in the `{status:"ok", data}` envelope** — the
+composer returns bare domain shapes; the routes envelope them so the frontend
+consumes one consistent shape via `EnvelopeBody` (the composer's per-source
+degradation means the route status is always `ok`; calendar's
+`data.course_table` itself carries the inner login status). None of these touch
+the LLM — `routes/dashboard.py` and `composer.py` import neither the agent nor
+`pydantic_ai` (a structural test asserts it).
+
+The frontend wraps `<App/>` in an `ErrorBoundary` (`main.tsx`) so a thrown render
+error in any panel shows a visible diagnostic instead of unmounting the whole
+tree to a blank page (React has no default boundary).
+
+## Data cleaning + the format layer (P1 / Increment D)
+
+Teaching-network data is **raw** (portal blobs, Rust Debug enum names, RFC3339
+timestamps). Two layers clean it before it reaches the DOM:
+
+- **Backend (pku3b)** normalizes **structured** fields at the source —
+  `list_course_materials` emits a Chinese `kind` label (文档/文件/文件夹/…), not
+  the Rust `CourseContentKind` Debug name. This benefits every consumer
+  (dashboard + agent).
+- **Frontend `format.ts`** is the **display** layer — pure functions that turn
+  raw shapes into short Chinese strings: `parseCourseSlot` (the courseName blob
+  → `{name, room, teacher}`, mirroring pku3b's CLI `format_course_info`),
+  `fmtDeadline`/`fmtDate` (RFC3339 + Chinese dates → `6/27 周六 11:59`, keeping
+  the source's wall-clock, no tz conversion), `fmtAnnouncementTime` (strips the
+  `发布时间：` prefix), `truncate`/`fmtDescription` (long text → one short line),
+  `kindLabel` (safety-net for stale English values). Every function is total —
+  on an unexpected shape it returns a safe fallback, never throws (so it can't
+  re-trigger the blank-page render-crash class).
+
+## Views (main / directory)
+
+The app has no router; `App.tsx` holds a `view: "main" | "directory"` state
+toggled by a segmented control in the header. **Main** = the glanceable subset
+(Calendar + 待办 + 新到通知); **Directory** = a **left sidebar nav + a single
+selected module** on the right (作业/课程通知/材料/回放/成绩 + the four 待接入
+placeholders). Clicking a nav item swaps which module is mounted — only one is
+rendered at a time (not a grid). List modules paginate (上一页/下一页). The chat
+sidebar is a sibling of `<Dashboard>`, independent of the view.
+
+## Snapshot cache (Increment E) — survives restarts + prefetch on login
+
+The deterministic routes maintain a snapshot cache in the **Store** (`snapshots`
+table, Seam 5): on every successful live fetch they write the envelope; on a
+`needs_otp` / `error` (not logged in, or the network is down) they serve the
+last good snapshot back **marked `stale`** (with `fetched_at`), so the dashboard
+still shows yesterday's data after a backend restart or when not logged in. The
+frontend mirrors the last envelope to `localStorage` for an instant first paint
+on browser refresh, and renders a "离线缓存（上次更新 …）" badge on stale data.
+
+On a fully-connected login, `/api/login` kicks off a **background prefetch**
+that warms all six sources into the snapshot cache (detached task — never blocks
+the login response), so the directory modules are populated immediately
+regardless of which view the client has mounted. `warm_snapshots`
+(`routes/session.py`) reuses the same `_cached` helper as the deterministic
+routes, so prefetch and per-route fallback stay in sync.
 
 ## Login: one OTP for both services
 
@@ -93,4 +186,24 @@ why pku3b is a *separate MCP server subprocess*, not a linked library.
 
 Write tools / permission matrix / OTP UI round-trip (P2), SQLite persistence
 (P1), external forums (P3), credential encryption (P4), streaming chat — the
-post-P0 roadmap.
+post-P0 roadmap. (P1 has since added the Store + Composer + dashboard routes;
+the rest stands.)
+
+## Deferred sources (P3) — interfaces designed, not yet built
+
+The P1 dashboard renders placeholder "待接入 (P3)" panels for four data sources
+pku3b / the backend cannot feed yet. Their **GUI + typed data contracts are in
+place** (types in `frontend/src/api.ts`; the contract documented below) so P3
+implements a scraper/endpoint against a fixed shape — no frontend rework. There
+is deliberately **no dead backend route and no stub MCP tool** for these today.
+
+| Source | P3 will be | Contract | Defined in |
+|--------|-----------|----------|-----------|
+| 教务通知 (dean's office) | a **future MCP tool** on `pku3b` | `get_dean_updates` → `DeanUpdate` | `docs/mcp-protocol.md` |
+| 北大树洞 (treehole) | **future MCP tools** on `pku3b` (IAAA reuse) | `list_treehole_posts` / `get_treehole_post` → `TreeholePost` | `docs/mcp-protocol.md` |
+| 文档库 (personal docs) | a **future backend feature** (not pku3b/MCP) | `GET /api/docs/search` → `DocResult` | here |
+| 记忆 (long-term agent memory) | a **future backend feature** | `GET /api/memory` → `MemoryEntry` | here |
+
+The doc-library and memory endpoints will be **new backend routes**, added
+alongside `routes/dashboard.py` when P3 builds them (they are not teaching-network
+data, so they do not belong on the `pku3b` MCP server).
