@@ -12,7 +12,12 @@ export type Envelope<T> =
 
 async function getEnvelope<T>(path: string): Promise<Envelope<T>> {
   try {
-    const res = await fetch(`/api${path}`);
+    // 15s timeout — prevents the loading indicator from hanging forever when
+    // the backend is slow (MCP crawl) or unreachable.
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 15_000);
+    const res = await fetch(`/api${path}`, { signal: controller.signal });
+    clearTimeout(id);
     if (!res.ok) return { status: "error", message: `HTTP ${res.status}` };
     return (await res.json()) as Envelope<T>;
   } catch (e) {

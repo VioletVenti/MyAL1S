@@ -135,7 +135,9 @@ async def delete_item(item_id: int, request: Request) -> dict:
 async def _cached_route(request: Request, key: str, coro_factory):
     """Snapshot-cache wrapper for composer-backed routes. `coro_factory` is a
     no-arg callable returning an awaitable that yields the route's `data` dict.
-    On success, persists the full envelope; on failure, serves stale if cached."""
+    On success, persists the full envelope; on failure (timeout, exception),
+    serves the stale snapshot if available. This prevents slow MCP crawls from
+    hanging the frontend's loading state."""
     try:
         data = await coro_factory()
         env = {"status": "ok", "data": data}
