@@ -62,6 +62,49 @@ async def test_call_tool_returns_status_envelope(settings: Settings) -> None:
     assert env.get("status") in {"ok", "needs_otp", "error"}
 
 
+class _FakeGate:
+    """Minimal duck-typed gate for attach_write_toolset wiring tests — the local
+    tool closure is built but not invoked here."""
+
+    def uploads_filename_for(self, file_id: str) -> str | None:
+        return "x.pdf"
+
+    async def create_approval(self, **kw):  # noqa: ANN003
+        return {"status": "pending_approval", "approval_id": "fake"}
+
+
+class _Td:
+    """ToolDefinition stub with just `.name` (all the filter_func inspects)."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+@requires_binary
+async def test_agent_toolset_hides_submit_primitive(settings: Settings) -> None:
+    """The path-based submit_assignment MCP primitive is hidden from the agent
+    (it gets a file_id proxy instead), but the raw server still exposes it and
+    gateway.call_tool still dispatches it directly (for the UI / gate path)."""
+    gateway = McpGateway(settings)
+    async with gateway:
+        gateway.attach_write_toolset(_FakeGate())
+        # 1. The raw MCP server still lists the path primitive.
+        raw = {t.name for t in await gateway._server.list_tools()}
+        assert "submit_assignment" in raw
+        # 2. The agent's filtered server view DROPS it; read tools survive.
+        ff = gateway._filtered.filter_func
+        assert ff(None, _Td("submit_assignment")) is False
+        assert ff(None, _Td("list_assignments")) is True
+        # 3. The local write toolset exposes the file_id proxy under the same name.
+        assert "submit_assignment" in gateway._write_ts.tools
+        # 4. gateway.call_tool still reaches the primitive directly — a missing
+        #    file fails BEFORE any login (deterministic, no network needed).
+        env = await gateway.call_tool(
+            "submit_assignment", {"assignment_id": "x", "file_path": "/nonexistent"}
+        )
+        assert env["status"] == "error"
+
+
 def test_deterministic_route_cannot_reach_the_llm() -> None:
     """Architecture decision #3, enforced structurally: the deterministic
     module must not import the LLM library. AST-based so a docstring that merely

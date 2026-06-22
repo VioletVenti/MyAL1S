@@ -45,6 +45,10 @@ async def lifespan(app: FastAPI):
         # gateway; uploads stores attached files. Neither holds async resources.
         uploads = Uploads(settings.uploads_dir)
         gate = PermissionGate(store, gateway, uploads)
+        # P2: give the agent its file_id-based write tool + hide the path-based
+        # MCP primitive from it. Done after the gate exists (the tool closes over
+        # it) and after the gateway is entered (the server is live).
+        gateway.attach_write_toolset(gate)
         app.state.gateway = gateway
         app.state.store = store
         app.state.composer = composer

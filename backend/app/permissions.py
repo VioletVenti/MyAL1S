@@ -96,6 +96,12 @@ class PermissionGate:
     def known_groups() -> list[str]:
         return list(KNOWN_GROUPS)
 
+    def uploads_filename_for(self, file_id: str) -> str | None:
+        """The original filename for a file_id (for approval summaries / the
+        agent tool). None if the upload is gone. Exposed so callers don't reach
+        into the uploads helper directly."""
+        return self._uploads.filename_for(file_id)
+
     # ---- agent path: create a pending approval ----------------------------
 
     async def create_approval(
