@@ -149,10 +149,12 @@ button:disabled { opacity: 0.4; cursor: default; }
 .linkish:hover { background: var(--pku-soft); }
 .panel-actions { display: inline-flex; gap: 0.4rem; align-items: center; }
 
-/* ---- layout ---- */
+/* ---- layout: the dashboard + chat share a fixed-width sheet. The chat
+   column is a fixed-pinned track so it NEVER reflows on resize; only the
+   dashboard track grows/shrinks (and scrolls horizontally if it must). ---- */
 .layout {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 1.5rem;
   padding: 1.5rem 2rem 3rem;
   align-items: start;
@@ -305,7 +307,7 @@ input:focus, .model-picker:focus {
 .cal-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 0.4rem; }
 .cal-head-row {
   display: grid;
-  grid-template-columns: 3.6rem repeat(7, minmax(5.5rem, 1fr));
+  grid-template-columns: 3.9rem repeat(7, minmax(5.5rem, 1fr));
   gap: 0.25rem;
   margin-bottom: 0.4rem;
   min-width: 40rem;
@@ -336,16 +338,17 @@ input:focus, .model-picker:focus {
 
 .cal-tt {
   display: grid;
-  grid-template-columns: 3.6rem repeat(7, minmax(5.5rem, 1fr));
+  grid-template-columns: 3.9rem repeat(7, minmax(5.5rem, 1fr));
   gap: 0.25rem;
   min-width: 40rem;
 }
 .cal-axis { position: relative; }
 .cal-slot-label {
-  position: absolute; left: 0; right: 0.2rem;
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 0.05rem; text-align: center;
+  position: absolute; left: 0; right: 0.25rem;
+  display: flex; flex-direction: column; align-items: flex-end;
+  justify-content: center; gap: 0.05rem; text-align: right;
   border-top: 1px dotted var(--rule);
+  padding-right: 0.15rem;
 }
 .cal-slot-no { font-size: 0.7rem; font-weight: 600; color: var(--ink-2); line-height: 1; font-family: var(--font-mono); }
 .cal-slot-time { font-size: 0.58rem; color: var(--ink-3); line-height: 1.05; white-space: nowrap; font-family: var(--font-mono); }
@@ -486,6 +489,9 @@ input:focus, .model-picker:focus {
   position: sticky;
   top: 5rem;
   border-left: 3px solid var(--ink);
+  /* The chat stays put: pinned to the right track, won't reflow with the
+     dashboard's content height. max-height keeps it viewport-bound. */
+  max-height: calc(100vh - 6rem);
 }
 .sidebar h2 {
   margin: 0.2rem 0 0.7rem;
