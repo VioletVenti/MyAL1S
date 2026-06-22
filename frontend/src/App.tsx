@@ -73,8 +73,11 @@ export default function App() {
     <StarProvider onChange={bump}>
       <div className="app">
         <header className="app-header">
-          <h1>MyAL1S</h1>
-          <span className="subtitle">PKU 校园信息终端助手</span>
+          <div className="masthead-title">
+            <h1>MyAL1S</h1>
+            <span className="subtitle">PKU 校园信息终端助手</span>
+          </div>
+          <span className="masthead-date">{todayLabel()}</span>
           <span className="toolbar">
             <span className="seg">
               <button
@@ -112,4 +115,14 @@ export default function App() {
       </div>
     </StarProvider>
   );
+}
+
+/** Today's date in the masthead, e.g. "二〇二六 · 六月 廿二 · 周一". */
+function todayLabel(): string {
+  const d = new Date();
+  const cnNum = ["〇", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  const y = String(d.getFullYear()).split("").map((c) => cnNum[+c]).join("");
+  const mo = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"][d.getMonth()];
+  const wd = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][d.getDay()];
+  return `${y} · ${mo}月 ${d.getDate()} · ${wd}`;
 }

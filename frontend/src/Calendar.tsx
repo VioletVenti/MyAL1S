@@ -60,6 +60,12 @@ function todayUtcKey(): string {
   return dateKey(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
 }
 
+/** Current wall-clock minutes from midnight (local), for the "现在" red rule. */
+function wallNowMinutes(): number {
+  const n = new Date();
+  return n.getHours() * 60 + n.getMinutes();
+}
+
 function itemDateKey(item: TodoItem): string | null {
   if (!item.date) return null;
   const d = new Date(item.date);
@@ -146,6 +152,13 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   const [env, setEnv] = useState<Envelope<{ course_table: Envelope<unknown>; items: TodoItem[]; week: string }> | null>(null);
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
+  // "现在" rule: current wall-clock minutes, re-ticked every minute so the red
+  // "you are here" line stays live across today's column.
+  const [nowMin, setNowMin] = useState(() => wallNowMinutes());
+  useEffect(() => {
+    const id = setInterval(() => setNowMin(wallNowMinutes()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -264,6 +277,17 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                             </div>
                           );
                         })}
+                        {/* 现在 (now) red rule — the signature element: a live
+                            "you are here" line across today's column. */}
+                        {today && nowMin >= DAY_START_MIN && nowMin <= DAY_END_MIN && (
+                          <div
+                            className="cal-now"
+                            style={{ top: (nowMin - DAY_START_MIN) * PX_PER_MIN }}
+                            aria-label={`现在 ${minToLabel(nowMin)}`}
+                          >
+                            <span className="cal-now-label">现在 {minToLabel(nowMin)}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
