@@ -553,3 +553,46 @@ pre {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---- school-week input (单双周 filtering) ---- */
+.cal-school-week {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+.cal-school-week input {
+  width: 2.5rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--wave);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.cal-sw-viewed {
+  color: var(--lake-deep);
+  font-weight: 600;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+}
+
+/* 单双周 badge on class blocks */
+.cal-parity-badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+  margin-left: 0.2rem;
+  vertical-align: middle;
+}
+/* 单周 vs 双周: slightly different block tint for visual distinction */
+.cal-block.parity-odd { border: 1px solid var(--lake); }
+.cal-block.parity-even { border: 1px dashed rgba(255,255,255,0.7); }

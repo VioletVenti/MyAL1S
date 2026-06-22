@@ -9,10 +9,16 @@
 // for the course-table blob, kept in sync by reading that source.
 
 /** A parsed course-table slot (one (period, weekday) cell). */
+export type WeekParity = "odd" | "even" | "all";
 export interface CourseSlot {
   name: string;
   room?: string;
   teacher?: string;
+  /** Whether this slot runs every week, odd weeks only (单周), or even only (双周).
+   *  Parsed from the blob's 上课信息 section. */
+  parity: WeekParity;
+  /** The school-week range parsed from the blob (e.g. 1-15), if present. */
+  weekRange?: [number, number];
 }
 
 /**
@@ -25,29 +31,32 @@ export interface CourseSlot {
  * teacher from 教师：. Defensive: any unexpected shape → {name: trimmed blob}.
  */
 export function parseCourseSlot(blob: string | null | undefined): CourseSlot {
-  if (!blob) return { name: "" };
+  if (!blob) return { name: "", parity: "all" };
   // Strip every HTML tag (<font>/<b>/<br>/…) and collapse whitespace/newlines.
   const info = blob
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!info) return { name: "" };
+  if (!info) return { name: "", parity: "all" };
   const name = (info.split("(主)")[0] ?? info).trim() || info;
-  const slot: CourseSlot = { name };
+  const slot: CourseSlot = { name, parity: "all" };
 
   const classIdx = info.indexOf("上课信息：");
   if (classIdx >= 0) {
     const rest = info.slice(classIdx + "上课信息：".length);
     const teacherIdx = rest.indexOf("教师：");
     const classEnd = teacherIdx >= 0 ? teacherIdx : rest.length;
-    // 上课信息 text is like "11-15周 每周 二教203" — the room is the LAST token
-    // (the leading tokens are week-pattern noise). Drop a trailing comma.
-    const roomRaw = rest.slice(0, classEnd).trim().replace(/[,，]+$/, "");
-    const room = roomRaw.split(/\s+/).pop();
+    const classInfo = rest.slice(0, classEnd).trim().replace(/[,，]+$/, "");
+    // Parse week range + parity from "11-15周 单周 二教203" style text.
+    const rangeMatch = classInfo.match(/(\d+)\s*-\s*(\d+)\s*周/);
+    if (rangeMatch) slot.weekRange = [+rangeMatch[1], +rangeMatch[2]];
+    if (/单周/.test(classInfo)) slot.parity = "odd";
+    else if (/双周/.test(classInfo)) slot.parity = "even";
+    // Room = last whitespace token.
+    const room = classInfo.split(/\s+/).pop();
     if (room) slot.room = room;
     if (teacherIdx >= 0) {
       const teacherRest = rest.slice(teacherIdx + "教师：".length);
-      // Teacher name(s) end at the next 考试信息 marker, else end of string.
       const examIdx = teacherRest.indexOf("考试信息");
       const teacherEnd = examIdx >= 0 ? examIdx : teacherRest.length;
       const teacher = teacherRest.slice(0, teacherEnd).trim();
