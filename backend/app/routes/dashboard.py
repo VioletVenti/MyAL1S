@@ -132,39 +132,49 @@ async def delete_item(item_id: int, request: Request) -> dict:
 # ---- 待办 ----------------------------------------------------------------
 
 
+async def _cached_route(request: Request, key: str, coro_factory):
+    """Snapshot-cache wrapper for composer-backed routes. `coro_factory` is a
+    no-arg callable returning an awaitable that yields the route's `data` dict.
+    On success, persists the full envelope; on failure (timeout, exception),
+    serves the stale snapshot if available. This prevents slow MCP crawls from
+    hanging the frontend's loading state."""
+    try:
+        data = await coro_factory()
+        env = {"status": "ok", "data": data}
+        await _store(request).put_snapshot(key, env)
+        return env
+    except Exception:
+        snap = await _store(request).get_snapshot(key)
+        if snap:
+            return {**snap["payload"], "stale": True, "fetched_at": snap["fetched_at"]}
+        raise
+
+
 @router.get("/todo")
 async def todo(request: Request) -> dict:
     """The 待办 module: starred assignments + starred announcements + custom
-    items, unified and sorted by anchor date. Wrapped in the ``{status, data}``
-    envelope for consistency with the other deterministic endpoints — the
-    frontend consumes it via EnvelopeBody, which dereferences ``data``."""
-    return {"status": "ok", "data": {"items": await _composer(request).todo()}}
-
-
-# ---- weekly calendar -----------------------------------------------------
+    items, unified and sorted by anchor date."""
+    async def make():
+        return {"items": await _composer(request).todo()}
+    return await _cached_route(request, "todo", make)
 
 
 @router.get("/calendar")
 async def calendar(request: Request, week: str | None = None) -> dict:
     """The weekly calendar: course table + the starred/custom items falling in
-    the requested ISO week (``YYYY-Www``). Omit ``week`` for the current week.
-
-    Wrapped in ``{status:"ok", data}``; ``data.course_table`` is itself an
-    envelope (ok/needs_otp/error) so the frontend can branch on login state
-    while still rendering the week's items."""
-    return {"status": "ok", "data": await _composer(request).week(week)}
-
-
-# ---- 新到通知 ------------------------------------------------------------
+    the requested ISO week (``YYYY-Www``)."""
+    cache_key = f"calendar:{week or 'current'}"
+    async def make():
+        return await _composer(request).week(week)
+    return await _cached_route(request, cache_key, make)
 
 
 @router.get("/new-notices")
 async def new_notices(request: Request) -> dict:
-    """Items new since the last mark-seen: live assignment + announcement ids
-    not yet in the seen-id watermark. Wrapped in the ``{status, data}`` envelope
-    (the composer already degrades each source to ``[]`` when not logged in, so
-    the route status is always ``ok``)."""
-    return {"status": "ok", "data": await _composer(request).new_notices()}
+    """Items new since the last mark-seen."""
+    async def make():
+        return await _composer(request).new_notices()
+    return await _cached_route(request, "new_notices", make)
 
 
 @router.post("/new-notices/mark-seen")

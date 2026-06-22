@@ -23,7 +23,7 @@ export default function NewNoticesPanel({
   refreshKey: number;
   bump: () => void;
 }) {
-  const { env, loading, reload } = useEnvelope(fetchNewNotices);
+  const { env, loading, reload } = useEnvelope(fetchNewNotices, { cacheKey: "new_notices" });
   useRefresh(refreshKey, reload);
   const [expanded, setExpanded] = useState(false);
 

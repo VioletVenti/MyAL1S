@@ -9,10 +9,17 @@
 // for the course-table blob, kept in sync by reading that source.
 
 /** A parsed course-table slot (one (period, weekday) cell). */
+export type WeekParity = "odd" | "even" | "all";
 export interface CourseSlot {
   name: string;
   room?: string;
   teacher?: string;
+  /** Whether this slot runs every week, odd weeks only (单周), or even only (双周).
+   *  Parsed from the blob's 上课信息 section. */
+  parity: WeekParity;
+  /** The set of school-weeks this slot is active (expanded from ranges like
+   *  "1-15" or "9-9,11-11,13-13"). Empty = every week in the semester. */
+  weeks: number[];
 }
 
 /**
@@ -25,29 +32,43 @@ export interface CourseSlot {
  * teacher from 教师：. Defensive: any unexpected shape → {name: trimmed blob}.
  */
 export function parseCourseSlot(blob: string | null | undefined): CourseSlot {
-  if (!blob) return { name: "" };
+  if (!blob) return { name: "", parity: "all", weeks: [] };
   // Strip every HTML tag (<font>/<b>/<br>/…) and collapse whitespace/newlines.
   const info = blob
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!info) return { name: "" };
+  if (!info) return { name: "", parity: "all", weeks: [] };
   const name = (info.split("(主)")[0] ?? info).trim() || info;
-  const slot: CourseSlot = { name };
+  const slot: CourseSlot = { name, parity: "all", weeks: [] };
 
   const classIdx = info.indexOf("上课信息：");
   if (classIdx >= 0) {
     const rest = info.slice(classIdx + "上课信息：".length);
     const teacherIdx = rest.indexOf("教师：");
     const classEnd = teacherIdx >= 0 ? teacherIdx : rest.length;
-    // 上课信息 text is like "11-15周 每周 二教203" — the room is the LAST token
-    // (the leading tokens are week-pattern noise). Drop a trailing comma.
-    const roomRaw = rest.slice(0, classEnd).trim().replace(/[,，]+$/, "");
-    const room = roomRaw.split(/\s+/).pop();
+    const classInfo = rest.slice(0, classEnd).trim().replace(/[,，]+$/, "");
+    // Parse ALL week ranges from the blob — supports single range ("1-15周")
+    // AND multi-segment lists ("9-9,11-11,13-13周"). Expand each N-M into a
+    // full set of active weeks. The pattern matches before "周".
+    const weekPart = classInfo.match(/([\d,\s\-]+)\s*周/);
+    if (weekPart) {
+      const weeks = new Set<number>();
+      for (const seg of weekPart[1].split(/[,，]+/)) {
+        const m = seg.match(/(\d+)\s*-\s*(\d+)/);
+        if (m) {
+          for (let w = +m[1]; w <= +m[2]; w++) weeks.add(w);
+        }
+      }
+      slot.weeks = [...weeks].sort((a, b) => a - b);
+    }
+    if (/单周/.test(classInfo)) slot.parity = "odd";
+    else if (/双周/.test(classInfo)) slot.parity = "even";
+    // Room = last whitespace token.
+    const room = classInfo.split(/\s+/).pop();
     if (room) slot.room = room;
     if (teacherIdx >= 0) {
       const teacherRest = rest.slice(teacherIdx + "教师：".length);
-      // Teacher name(s) end at the next 考试信息 marker, else end of string.
       const examIdx = teacherRest.indexOf("考试信息");
       const teacherEnd = examIdx >= 0 ? examIdx : teacherRest.length;
       const teacher = teacherRest.slice(0, teacherEnd).trim();

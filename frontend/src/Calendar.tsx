@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Envelope, TodoItem } from "./api";
 import { fetchCalendar } from "./api";
-import { parseCourseSlot } from "./format";
+import { parseCourseSlot, type WeekParity } from "./format";
 import { EnvelopeBody, WEEKDAYS } from "./widgets";
 
 // ---- ISO-week helpers (pure) --------------------------------------------
@@ -47,6 +47,13 @@ function datesOfWeek(week: string): Date[] {
   });
 }
 
+/** Signed number of weeks between two ISO weeks (a - b). Positive = a is later. */
+function isoWeekDelta(a: string, b: string): number {
+  const da = datesOfWeek(a)[0];
+  const db = datesOfWeek(b)[0];
+  return Math.round((da.getTime() - db.getTime()) / (7 * 86400000));
+}
+
 function dateKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
@@ -58,6 +65,12 @@ function dateKey(d: Date): string {
 function todayUtcKey(): string {
   const n = new Date();
   return dateKey(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
+}
+
+/** Current wall-clock minutes from midnight (local), for the "现在" red rule. */
+function wallNowMinutes(): number {
+  const n = new Date();
+  return n.getHours() * 60 + n.getMinutes();
 }
 
 function itemDateKey(item: TodoItem): string | null {
@@ -73,6 +86,8 @@ interface Slot {
   name: string;
   room?: string;
   teacher?: string;
+  parity: WeekParity;
+  weeks: number[];
 }
 
 // ---- period → wall-clock time map (PKU fixed convention) ----------------
@@ -128,7 +143,7 @@ function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
       if (!raw) return;
       const parsed = parseCourseSlot(raw);
       if (parsed.name)
-        out[key].push({ period: idx + 1, name: parsed.name, room: parsed.room, teacher: parsed.teacher });
+        out[key].push({ period: idx + 1, name: parsed.name, room: parsed.room, teacher: parsed.teacher, parity: parsed.parity, weeks: parsed.weeks });
     });
   });
   return out;
@@ -143,14 +158,39 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
     const n = new Date();
     return isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
   });
-  const [env, setEnv] = useState<Envelope<{ course_table: Envelope<unknown>; items: TodoItem[]; week: string }> | null>(null);
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
+  // School-week for 单双周 filtering. User sets the CURRENT teaching week;
+  // the viewed week's school-week is computed by offset. 0 = unset (show all,
+  // with a badge so 单双周 courses are at least labeled).
+  const [schoolWeek, setSchoolWeek] = useState(0);
+  // "现在" rule: current wall-clock minutes, re-ticked every minute so the red
+  // "you are here" line stays live across today's column.
+  const [nowMin, setNowMin] = useState(() => wallNowMinutes());
+  useEffect(() => {
+    const id = setInterval(() => setNowMin(wallNowMinutes()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // localStorage cache key for this week's calendar data (instant paint on refresh).
+  const cacheKey = `calendar:${week}`;
+  const [env, setEnvState] = useState<Envelope<{ course_table: Envelope<unknown>; items: TodoItem[]; week: string }> | null>(() => {
+    try {
+      const raw = localStorage.getItem(`myal1s.env.${cacheKey}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const setEnv = useCallback((e: typeof env) => {
+    setEnvState(e);
+    if (e && e.status === "ok") {
+      try { localStorage.setItem(`myal1s.env.${cacheKey}`, JSON.stringify(e)); } catch { /* quota */ }
+    }
+  }, [cacheKey]);
 
   const reload = useCallback(() => {
     setLoading(true);
-    fetchCalendar(week).finally(() => setLoading(false)).then(setEnv).catch(() => setLoading(false));
-  }, [week]);
+    fetchCalendar(week).then(setEnv).finally(() => setLoading(false)).catch(() => setLoading(false));
+  }, [week, setEnv]);
 
   useEffect(() => {
     reload();
@@ -158,8 +198,38 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
 
   const courseTable: Envelope<unknown> = env && env.status === "ok" ? env.data.course_table : { status: "error", message: "未加载" };
   const items: TodoItem[] = env && env.status === "ok" ? env.data.items : [];
-  const classes = useMemo(() => classesByDay(courseTable), [courseTable]);
+  const allClasses = useMemo(() => classesByDay(courseTable), [courseTable]);
   const dates = useMemo(() => datesOfWeek(week), [week]);
+
+  // Compute the viewed week's school-week number (for 单双周 filtering).
+  // `schoolWeek` = the CURRENT week's teaching week (user-input). The viewed
+  // week's school-week = schoolWeek + the ISO-week delta from this week.
+  const viewedSchoolWeek = useMemo(() => {
+    if (schoolWeek <= 0) return 0;
+    const n = new Date();
+    const todayWeek = isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
+    const delta = isoWeekDelta(week, todayWeek);
+    return schoolWeek + delta;
+  }, [schoolWeek, week]);
+
+  // Filter classes by 单双周 parity + week range for the viewed school week.
+  const classes = useMemo(() => {
+    if (viewedSchoolWeek <= 0) return allClasses; // unset → show all (with badges)
+    const sw = viewedSchoolWeek;
+    const filtered: Record<string, Slot[]> = {};
+    for (const [key] of WEEKDAYS) {
+      filtered[key] = (allClasses[key] ?? []).filter((c) => {
+        // Week filter: if the slot has a specific active-weeks set, the viewed
+        // school-week must be in it. Empty = every week (no range in blob).
+        if (c.weeks.length > 0 && !c.weeks.includes(sw)) return false;
+        // Parity: 单周 (odd) only on odd school weeks, 双周 (even) on even
+        if (c.parity === "odd" && sw % 2 === 0) return false;
+        if (c.parity === "even" && sw % 2 === 1) return false;
+        return true;
+      });
+    }
+    return filtered;
+  }, [allClasses, viewedSchoolWeek]);
 
   // Bucket composer items by their date for the per-day reveal.
   const itemsByDate = useMemo(() => {
@@ -177,6 +247,19 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
       <header>
         <h2>周历 · {week}</h2>
         <span className="panel-actions">
+          <label className="cal-school-week">
+            教学周
+            <input
+              type="number"
+              min={0}
+              max={30}
+              value={schoolWeek || ""}
+              onChange={(e) => setSchoolWeek(Math.max(0, +e.target.value || 0))}
+              placeholder="—"
+              title="设为当前教学周次（启用单双周过滤）"
+            />
+            {viewedSchoolWeek > 0 && <span className="cal-sw-viewed">第{viewedSchoolWeek}周</span>}
+          </label>
           <button onClick={() => setWeek((w) => shiftWeek(w, -1))}>‹ 上一周</button>
           <button onClick={() => setWeek(() => {
             const n = new Date();
@@ -255,15 +338,29 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                           return (
                             <div
                               key={c.period}
-                              className="cal-block"
-                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}`}
+                              className={`cal-block${c.parity !== "all" ? ` parity-${c.parity}` : ""}`}
+                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}${c.parity === "odd" ? " · 单周" : c.parity === "even" ? " · 双周" : ""}`}
                               style={{ top, height: h }}
                             >
-                              <span className="cal-block-name">{c.name}</span>
+                              <span className="cal-block-name">
+                                {c.name}
+                                {c.parity !== "all" && <span className="cal-parity-badge">{c.parity === "odd" ? "单" : "双"}</span>}
+                              </span>
                               {c.room && <span className="cal-block-room">{c.room}</span>}
                             </div>
                           );
                         })}
+                        {/* 现在 (now) red rule — the signature element: a live
+                            "you are here" line across today's column. */}
+                        {today && nowMin >= DAY_START_MIN && nowMin <= DAY_END_MIN && (
+                          <div
+                            className="cal-now"
+                            style={{ top: (nowMin - DAY_START_MIN) * PX_PER_MIN }}
+                            aria-label={`现在 ${minToLabel(nowMin)}`}
+                          >
+                            <span className="cal-now-label">现在 {minToLabel(nowMin)}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

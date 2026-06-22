@@ -73,8 +73,10 @@ export default function App() {
     <StarProvider onChange={bump}>
       <div className="app">
         <header className="app-header">
-          <h1>MyAL1S</h1>
-          <span className="subtitle">PKU 校园信息终端助手</span>
+          <div className="masthead-title">
+            <h1>MyAL1S</h1>
+            <span className="subtitle">PKU 校园信息终端助手</span>
+          </div>
           <span className="toolbar">
             <span className="seg">
               <button
