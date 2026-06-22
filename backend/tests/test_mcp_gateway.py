@@ -36,14 +36,20 @@ def settings() -> Settings:
 
 
 @requires_binary
-async def test_list_tools_exposes_read_only_catalog(settings: Settings) -> None:
+async def test_raw_catalog_includes_submit_primitive(settings: Settings) -> None:
+    """The raw MCP catalog (tools/list) includes `submit_assignment` — the
+    side-effecting execution primitive the backend's permission gate dispatches to
+    directly. It is hidden from the *agent* toolset separately (asserted in
+    Increment D, test_agent_toolset_hides_submit_primitive); the raw server still
+    exposes it so `gateway.call_tool` can reach it. Its `read_only: false` is
+    asserted on the pku3b side; here we only confirm the wire catalog surfaces it
+    to a direct caller."""
     gateway = McpGateway(settings)
     async with gateway:
         tools = await gateway._server.list_tools()
     names = {t.name for t in tools}
     assert {"get_course_table", "list_assignments", "get_grades"} <= names
-    # No write tool may leak into the catalog.
-    assert not any("submit" in n for n in names)
+    assert "submit_assignment" in names
 
 
 @requires_binary
