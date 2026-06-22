@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # CWD (uvicorn is run from backend/). The file is gitignored (*.sqlite).
     sqlite_path: str = "myal1s.sqlite"
 
+    # P2 write-ops: where chat-attached / to-submit files are stored. Relative
+    # paths resolve against the backend CWD. The dir is gitignored (uploads/).
+    uploads_dir: str = "uploads"
+
     # P1 chat model picker — a registry of selectable models, comma-separated
     # `Label:model-string` pairs. The first entry is the default. Model strings
     # follow the same provider-prefixed form as llm_model (e.g.

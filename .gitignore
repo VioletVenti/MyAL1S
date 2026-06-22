@@ -37,6 +37,10 @@ credentials.*
 *.db-shm
 /data/
 /var/
+# P2 write-ops: chat-attached / submitted files land here before being sent to
+# the teaching network. NEVER commit user homework files.
+uploads/
+**/uploads/
 
 # ---- Python backend (FastAPI + PydanticAI) --------------------------------
 .venv/
