@@ -17,7 +17,7 @@ export default function TodoModule({
   refreshKey: number;
   bump: () => void;
 }) {
-  const { env, loading, reload } = useEnvelope(fetchTodo);
+  const { env, loading, reload } = useEnvelope(fetchTodo, { cacheKey: "todo" });
   // Re-fetch when refreshKey changes (login / auto-refresh / star+custom mutations),
   // but not on first mount (useEnvelope already does that — avoids a double fetch).
   useRefresh(refreshKey, reload);

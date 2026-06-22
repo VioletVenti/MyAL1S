@@ -47,11 +47,34 @@ async def warm_snapshots(request: Request) -> None:
     """Fetch every teaching-network source and write its snapshot. Best-effort:
     each source is independent; failures are logged and don't abort the rest.
     Safe to run as a detached background task."""
+    # First warm the 6 deterministic (raw data) sources.
     for key, tool in _WARM_SOURCES:
         try:
             await _cached(request, key, tool)
         except Exception as e:  # a single source failing must not stop the rest
             log.warning("prefetch %s failed: %r", key, e)
+
+    # Then warm the 3 composer-backed dashboard routes (todo / new-notices /
+    # calendar) so the main-view panels are also cached on login.
+    from .dashboard import _cached_route, _composer
+    composer = _composer(request)
+
+    async def _make_todo():
+        return {"items": await composer.todo()}
+    async def _make_notices():
+        return await composer.new_notices()
+    async def _make_calendar():
+        return await composer.week(None)
+
+    for key, factory in [("todo", _make_todo), ("new_notices", _make_notices)]:
+        try:
+            await _cached_route(request, key, factory)
+        except Exception as e:
+            log.warning("prefetch %s failed: %r", key, e)
+    try:
+        await _cached_route(request, "calendar:current", _make_calendar)
+    except Exception as e:
+        log.warning("prefetch calendar failed: %r", e)
 
 
 @router.post("/login")

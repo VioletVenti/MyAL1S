@@ -158,7 +158,6 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
     const n = new Date();
     return isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
   });
-  const [env, setEnv] = useState<Envelope<{ course_table: Envelope<unknown>; items: TodoItem[]; week: string }> | null>(null);
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
   // School-week for 单双周 filtering. User sets the CURRENT teaching week;
@@ -173,10 +172,25 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
     return () => clearInterval(id);
   }, []);
 
+  // localStorage cache key for this week's calendar data (instant paint on refresh).
+  const cacheKey = `calendar:${week}`;
+  const [env, setEnvState] = useState<Envelope<{ course_table: Envelope<unknown>; items: TodoItem[]; week: string }> | null>(() => {
+    try {
+      const raw = localStorage.getItem(`myal1s.env.${cacheKey}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const setEnv = useCallback((e: typeof env) => {
+    setEnvState(e);
+    if (e && e.status === "ok") {
+      try { localStorage.setItem(`myal1s.env.${cacheKey}`, JSON.stringify(e)); } catch { /* quota */ }
+    }
+  }, [cacheKey]);
+
   const reload = useCallback(() => {
     setLoading(true);
-    fetchCalendar(week).finally(() => setLoading(false)).then(setEnv).catch(() => setLoading(false));
-  }, [week]);
+    fetchCalendar(week).then(setEnv).finally(() => setLoading(false)).catch(() => setLoading(false));
+  }, [week, setEnv]);
 
   useEffect(() => {
     reload();
