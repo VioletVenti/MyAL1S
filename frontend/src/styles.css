@@ -596,3 +596,32 @@ pre {
 /* 单周 vs 双周: slightly different block tint for visual distinction */
 .cal-block.parity-odd { border: 1px solid var(--lake); }
 .cal-block.parity-even { border: 1px dashed rgba(255,255,255,0.7); }
+
+/* ---- P2 write-ops: matrix / approvals / attach chip -------------------- */
+.matrix-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+.matrix-table th, .matrix-table td {
+  text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--ripple);
+}
+.matrix-table th { color: var(--ink-3); font-weight: 600; font-size: 0.85rem; }
+.matrix-table select {
+  background: var(--mist); border: 1px solid var(--wave);
+  border-radius: var(--radius-sm); padding: 0.3rem 0.5rem; font: inherit;
+}
+
+/* Approval status chips reuse .kind-chip; tint by outcome. */
+.kind-chip.executed { color: var(--ok); }
+.kind-chip.failed { color: var(--err); }
+.kind-chip.denied { color: var(--warn); }
+.kind-chip.ok { color: var(--ok); }
+
+.approval .ann-main { flex: 1; }
+.approval .row-actions { gap: 0.3rem; }
+
+/* Chat attachment chip. */
+.attach-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  margin-top: 0.4rem; padding: 0.25rem 0.55rem;
+  background: var(--lake-soft); border: 1px solid var(--wave);
+  border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--lake-deep);
+}
+.attach-chip .linkish { color: var(--ink-3); }

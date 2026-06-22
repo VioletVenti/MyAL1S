@@ -5,15 +5,17 @@
 // Multi-turn history is persisted backend-side (message_history=); this box
 // holds the local message list for the current conversation.
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   type ChatTraceEntry,
   type ConversationSummary,
+  type UploadResult,
   deleteConversation,
   getConversation,
   getModels,
   listConversations,
   sendChat,
+  uploadAttachment,
 } from "./api";
 
 interface Msg {
@@ -30,6 +32,25 @@ export default function ChatBox() {
   const [models, setModels] = useState<{ label: string; model: string }[]>([]);
   const [model, setModel] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  // P2: a chat-attached file. Held until sent; the agent gets its opaque file_id
+  // (never a path) so it can pass it to submit_assignment.
+  const [attachment, setAttachment] = useState<UploadResult | null>(null);
+  const [attaching, setAttaching] = useState(false);
+  const attachRef = useRef<HTMLInputElement>(null);
+
+  async function onAttach(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setAttaching(true);
+    try {
+      setAttachment(await uploadAttachment(file));
+    } catch (err) {
+      setMessages((m) => [...m, { role: "assistant", text: `附件上传失败：${String(err)}` }]);
+    } finally {
+      setAttaching(false);
+    }
+  }
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -61,9 +82,14 @@ export default function ChatBox() {
     setInput("");
     setBusy(true);
     try {
-      const res = await sendChat(text, { model: model ?? undefined, conversation_id: conversationId ?? undefined });
+      const res = await sendChat(text, {
+        model: model ?? undefined,
+        conversation_id: conversationId ?? undefined,
+        attachment_file_id: attachment?.file_id,
+      });
       setConversationId(res.conversation_id);
       setMessages((m) => [...m, { role: "assistant", text: res.reply, trace: res.trace }]);
+      setAttachment(null); // one-shot: the file_id was handed to the agent this turn
       void refreshConversations();
     } catch (err) {
       setMessages((m) => [...m, { role: "assistant", text: `出错了：${String(err)}` }]);
@@ -157,6 +183,16 @@ export default function ChatBox() {
       </div>
 
       <form className="composer" onSubmit={submit}>
+        <input ref={attachRef} type="file" hidden onChange={onAttach} />
+        <button
+          type="button"
+          className="ghost"
+          title="添加附件（交作业时用）"
+          disabled={busy || attaching}
+          onClick={() => attachRef.current?.click()}
+        >
+          {attaching ? "…" : "📎"}
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -167,6 +203,14 @@ export default function ChatBox() {
           发送
         </button>
       </form>
+      {attachment && (
+        <div className="attach-chip">
+          📎 {attachment.filename}
+          <button type="button" className="linkish" onClick={() => setAttachment(null)} title="移除附件">
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

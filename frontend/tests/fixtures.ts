@@ -114,4 +114,11 @@ export const fixtures: Record<string, unknown> = {
   models: {
     models: [{ label: "DeepSeek", model: "anthropic:evomap-deepseek-v4-flash" }],
   },
+  // P2 write-ops
+  approvals: { status: "ok", data: { approvals: [] } },
+  permissions: {
+    groups: [{ group: "assignment_submission", level: null }],
+    default: "confirm",
+    valid_levels: ["deny", "confirm"],
+  },
 };

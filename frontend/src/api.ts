@@ -239,12 +239,13 @@ export interface ConversationMessage {
 
 export function sendChat(
   message: string,
-  opts: { model?: string; conversation_id?: string } = {},
+  opts: { model?: string; conversation_id?: string; attachment_file_id?: string } = {},
 ): Promise<ChatResult> {
   return postJSON<ChatResult>("/chat", {
     message,
     model: opts.model ?? null,
     conversation_id: opts.conversation_id ?? null,
+    attachment_file_id: opts.attachment_file_id ?? null,
   });
 }
 
@@ -270,6 +271,103 @@ export async function getConversation(
 
 export async function deleteConversation(id: string): Promise<void> {
   const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// P2 write-ops: uploads / approvals / submit / permissions
+// ---------------------------------------------------------------------------
+
+export interface Approval {
+  id: string;
+  conversation_id: string | null;
+  tool_name: string;
+  group_name: string;
+  args: Record<string, unknown>;
+  filename: string | null;
+  summary: string | null;
+  status: "pending" | "denied" | "executed" | "failed";
+  result: Record<string, unknown> | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface UploadResult {
+  file_id: string;
+  filename: string;
+}
+
+export interface PermissionEntry {
+  group: string;
+  level: string | null; // null = the default (confirm)
+}
+
+export interface Permissions {
+  groups: PermissionEntry[];
+  default: string;
+  valid_levels: string[];
+}
+
+/** Upload a chat attachment. Multipart → steps outside postJSON. 15s timeout.
+ * Returns an opaque file_id the agent passes to submit_assignment. */
+export async function uploadAttachment(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch("/api/uploads", { method: "POST", body: form, signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as UploadResult;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
+  }
+}
+
+/** UI direct submit (implicit confirm). Multipart: assignment_id + file. */
+export async function submitAssignment(
+  assignmentId: string,
+  file: File,
+): Promise<Record<string, unknown>> {
+  const form = new FormData();
+  form.append("assignment_id", assignmentId);
+  form.append("file", file);
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 60_000); // uploading may take longer
+  try {
+    const res = await fetch("/api/submit", { method: "POST", body: form, signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as Record<string, unknown>;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
+  }
+}
+
+export const fetchApprovals = () => getEnvelope<{ approvals: Approval[] }>("/approvals");
+
+export async function decideApproval(
+  approvalId: string,
+  decision: "confirm" | "deny",
+): Promise<Record<string, unknown>> {
+  return postJSON(`/approvals/${encodeURIComponent(approvalId)}/decide`, { decision });
+}
+
+export async function fetchPermissions(): Promise<Permissions> {
+  const res = await fetch("/api/permissions");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as Permissions;
+}
+
+export async function setPermission(group: string, level: string): Promise<void> {
+  const res = await fetch(`/api/permissions/${encodeURIComponent(group)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ level }),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 

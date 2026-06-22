@@ -150,14 +150,53 @@ describe("Calendar renders the time-axis timetable", () => {
 
     // The 7 day columns + axis appear once loaded.
     await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
-    // 3 class blocks total: period1+period2 on Mon, period1+period2 on Wed
-    // (高等数学), period5 on Tue (线性代数) = 5 blocks.
     const blocks = container.querySelectorAll(".cal-block");
     expect(blocks.length).toBeGreaterThanOrEqual(3);
     // Period 1 (08:00) block sits at the top of its column (top ≈ 0).
     const firstTop = parseFloat((blocks[0] as HTMLElement).style.top);
     expect(firstTop).toBe(0); // 08:00 = DAY_START, 0px
-    // Each block's time label is rendered.
     expect(container.textContent).toContain("8:00");
+  });
+});
+
+describe("P2 write-ops UI", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", stubFetch());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("settings view renders the permission matrix (not a blank page)", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /权限矩阵/ })).toBeInTheDocument(),
+    );
+    // The 交作业 group row is present with its level selector (the 禁止 option
+    // is unique to the matrix — the chat model picker has no such option).
+    expect(screen.getByText("交作业")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "禁止" })).toBeInTheDocument();
+  });
+
+  it("directory shows the 待审批 module", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "待审批" })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "待审批" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "待审批" })).toBeInTheDocument(),
+    );
+  });
+
+  it("an unsubmitted assignment shows a 交作业 button", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "交作业" })).toBeInTheDocument(),
+    );
   });
 });
