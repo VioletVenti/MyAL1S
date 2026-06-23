@@ -154,6 +154,29 @@ regardless of which view the client has mounted. `warm_snapshots`
 (`routes/session.py`) reuses the same `_cached` helper as the deterministic
 routes, so prefetch and per-route fallback stay in sync.
 
+## Connection gate (P2 UX iteration) — one check, no spinner storm
+
+Before P2's UX iteration, an unauthenticated dashboard mounted every panel,
+each of which cold-crawled pku3b to discover `needs_otp` and spun 加载中 for the
+duration (the localStorage cache only seeds on `status:"ok"`, which never
+happens before a first login). Now `GET /api/session` is a SINGLE cheap gate:
+it calls the `login` tool with no otp (the reuse branch; pku3b's 1h HTTP cache
+keeps the second+ check fast) and returns `{connected: bool}`. The frontend
+checks it on mount and after a successful login; until `connected`, the
+dashboard renders ONE 未连接 notice (and the always-visible LoginBar) instead of
+mounting the panels — so a cold, not-logged-in load shows a clear prompt, not
+six spinners. Once connected, the panels mount warm.
+
+## Approval flow lives in the chat (P2 UX iteration)
+
+The agent two-phase approval no longer has a dedicated 待审批 directory panel.
+Pending approvals are polled (`GET /api/approvals?status=pending`) and rendered
+as **inline banners above the chat composer** — the confirm/reject happens right
+where the request originated. (The `/api/approvals` route and the audit row in
+the Store are unchanged; only the surfacing moved.) The UI-direct submit path
+(作业行「交作业」) is unchanged — it's an implicit confirm and never creates a
+pending.
+
 ## Write path (P2) — the PermissionGate, two channels, one dispatch
 
 P2 adds the write side. The deep module is the **PermissionGate** (Seam 7) — the

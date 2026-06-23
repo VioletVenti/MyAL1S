@@ -625,3 +625,41 @@ pre {
   border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--lake-deep);
 }
 .attach-chip .linkish { color: var(--ink-3); }
+
+/* ---- P2 UX iteration: always-visible history + inline approval banner ---- */
+/* History: a compact always-visible list (no longer a collapsed <details>). */
+.history-always {
+  border-top: 1px solid var(--ripple);
+  border-bottom: 1px solid var(--ripple);
+  background: var(--mist);
+  padding: 0.3rem 0.35rem;
+  margin-bottom: 0.4rem;
+  border-radius: var(--radius-sm);
+}
+.history-always .history-head {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  margin-bottom: 0.2rem;
+  padding-left: 0.1rem;
+}
+.history-always .history-list { max-height: 6.5rem; margin: 0; }
+
+/* Inline approval banners sit just above the composer — the agent's pending
+ * write requests are confirmed right where the conversation is happening. */
+.approval-banners { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
+.approval-banner {
+  display: flex; align-items: center; gap: 0.6rem;
+  background: var(--lake-soft);
+  border: 1px solid var(--lake);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+}
+.approval-banner-main { flex: 1; display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.approval-banner-title { font-weight: 600; color: var(--lake-deep); }
+.approval-banner-file { font-size: 0.8rem; color: var(--ink-3); }
+.approval-banner-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
+
+/* Session gate notice (shown in lieu of the dashboard when not connected). */
+.dashboard .notice { line-height: 1.6; }

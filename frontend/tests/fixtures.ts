@@ -126,6 +126,10 @@ export const fixtures: Record<string, unknown> = {
     models: [{ label: "DeepSeek", model: "anthropic:evomap-deepseek-v4-flash" }],
   },
   // P2 write-ops
+  // /api/session: the dashboard's connection gate. Default to connected:true so
+  // the existing render tests see the real panels; the session-gate test
+  // overrides this to {connected:false}.
+  session: { connected: true },
   approvals: { status: "ok", data: { approvals: [] } },
   permissions: {
     groups: [{ group: "assignment_submission", level: null }],

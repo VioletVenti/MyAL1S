@@ -347,7 +347,8 @@ export async function submitAssignment(
   }
 }
 
-export const fetchApprovals = () => getEnvelope<{ approvals: Approval[] }>("/approvals");
+export const fetchApprovals = (status?: "pending" | "denied" | "executed" | "failed") =>
+  getEnvelope<{ approvals: Approval[] }>(`/approvals${status ? `?status=${status}` : ""}`);
 
 export async function decideApproval(
   approvalId: string,
@@ -433,4 +434,12 @@ export async function login(otp: string): Promise<Envelope<LoginResult>> {
   } catch (e) {
     return { status: "error", message: String(e) };
   }
+}
+
+/** Cheap single connection check — the dashboard's "am I logged in?" gate. Used
+ *  to show one "未连接，请登录" notice instead of every panel cold-crawling. */
+export async function fetchSession(): Promise<{ connected: boolean }> {
+  const res = await fetch("/api/session");
+  if (!res.ok) return { connected: false };
+  return (await res.json()) as { connected: boolean };
 }

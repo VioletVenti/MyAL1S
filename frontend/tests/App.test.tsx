@@ -180,16 +180,54 @@ describe("P2 write-ops UI", () => {
     expect(screen.getByRole("option", { name: "禁止" })).toBeInTheDocument();
   });
 
-  it("directory shows the 待审批 module", async () => {
+  it("when not connected, shows a single 未连接 notice (no spinning panels)", async () => {
+    vi.stubGlobal("fetch", stubFetch({ session: { connected: false } }));
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    await waitFor(() => expect(screen.getByText(/未连接教学网/)).toBeInTheDocument());
+    // While gated, no panel headings mount — so no 加载中 spinners either.
+    expect(screen.queryByRole("heading", { name: /待办/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /周历/ })).not.toBeInTheDocument();
+  });
+
+  it("a pending write approval shows an inline 确认执行 / 拒绝 banner in the chat", async () => {
+    const pending = [
+      {
+        id: "ap1",
+        conversation_id: null,
+        tool_name: "submit_assignment",
+        group_name: "assignment_submission",
+        args: { assignment_id: "a1", file_id: "f1" },
+        filename: "hw1.pdf",
+        summary: "交作业: hw1.pdf",
+        status: "pending",
+        result: null,
+        created_at: "2026-06-23T00:00:00+00:00",
+        decided_at: null,
+      },
+    ];
+    vi.stubGlobal("fetch", stubFetch({ approvals: { status: "ok", data: { approvals: pending } } }));
+    render(<App />);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "待审批" })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "确认执行" })).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "待审批" }));
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "待审批" })).toBeInTheDocument(),
+    expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
+    expect(screen.getByText(/交作业: hw1\.pdf/)).toBeInTheDocument();
+  });
+
+  it("the chat shows an always-visible 历史会话 list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        conversations: {
+          conversations: [
+            { id: "c1", title: "旧对话一", created_at: "", updated_at: "" },
+          ],
+        },
+      }),
     );
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("历史会话（1）")).toBeInTheDocument());
+    expect(screen.getByText("旧对话一")).toBeInTheDocument();
   });
 
   it("an unsubmitted assignment shows a 交作业 button; a submitted one shows 已提交", async () => {

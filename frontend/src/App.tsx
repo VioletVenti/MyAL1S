@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import ChatBox from "./ChatBox";
 import Dashboard, { type DashboardView, SettingsPanel } from "./Dashboard";
-import { login } from "./api";
+import { fetchSession, login } from "./api";
 import { StarProvider } from "./stars";
 
 /** One-time login: enter the OTP once at startup; the session is then reused. */
@@ -62,12 +62,30 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [view, setView] = useState<DashboardView>("main");
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
+  // Session gate: null = checking, false = not connected, true = connected.
+  // When not connected the dashboard shows ONE "请登录" notice instead of every
+  // panel cold-crawling pku3b and spinning (the 加载中 complaint).
+  const [connected, setConnected] = useState<boolean | null>(null);
+
+  const checkSession = useCallback(async () => {
+    setConnected((await fetchSession()).connected);
+  }, []);
+
+  useEffect(() => {
+    void checkSession();
+  }, [checkSession]);
 
   useEffect(() => {
     if (!autoRefresh) return;
     const id = setInterval(bump, 60_000); // pku3b caches 1h, so repeated calls are cheap
     return () => clearInterval(id);
   }, [autoRefresh, bump]);
+
+  // After a successful login, re-check the session so the dashboard can mount.
+  const onConnected = useCallback(() => {
+    bump();
+    void checkSession();
+  }, [bump, checkSession]);
 
   return (
     <StarProvider onChange={bump}>
@@ -89,7 +107,7 @@ export default function App() {
               <button
                 className={view === "directory" ? "active" : "ghost"}
                 onClick={() => setView("directory")}
-                title="目录：作业 / 通知 / 材料 / 回放 / 成绩 / 待审批"
+                title="目录：作业 / 通知 / 材料 / 回放 / 成绩"
               >
                 目录
               </button>
@@ -110,12 +128,12 @@ export default function App() {
             </button>
           </span>
         </header>
-        <LoginBar onConnected={bump} />
+        <LoginBar onConnected={onConnected} />
         <main className="layout">
           {view === "settings" ? (
             <SettingsPanel refreshKey={refreshKey} />
           ) : (
-            <Dashboard view={view} refreshKey={refreshKey} bump={bump} />
+            <Dashboard view={view} refreshKey={refreshKey} bump={bump} connected={connected} />
           )}
           <aside className="sidebar">
             <h2>对话</h2>

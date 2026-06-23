@@ -7,10 +7,13 @@
 
 import { type FormEvent, type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
+  type Approval,
   type ChatTraceEntry,
   type ConversationSummary,
   type UploadResult,
+  decideApproval,
   deleteConversation,
+  fetchApprovals,
   getConversation,
   getModels,
   listConversations,
@@ -37,6 +40,19 @@ export default function ChatBox() {
   const [attachment, setAttachment] = useState<UploadResult | null>(null);
   const [attaching, setAttaching] = useState(false);
   const attachRef = useRef<HTMLInputElement>(null);
+  // Pending write approvals — surfaced as inline banners above the composer.
+  // The agent path creates them (agent.run ends); the user confirms here, in the
+  // chat, where the request originated. UI-direct submits don't create these.
+  const [pending, setPending] = useState<Approval[]>([]);
+
+  const refreshPending = useCallback(async () => {
+    try {
+      const env = await fetchApprovals("pending");
+      setPending(env.status === "ok" ? env.data.approvals : []);
+    } catch {
+      /* keep stale */
+    }
+  }, []);
 
   async function onAttach(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -74,6 +90,18 @@ export default function ChatBox() {
     void refreshConversations();
   }, [refreshConversations]);
 
+  useEffect(() => {
+    void refreshPending();
+  }, [refreshPending]);
+
+  // Slow poll for pending approvals: the agent run that creates one has already
+  // ended, and a pending may also arrive from another tab. Event-driven refresh
+  // (after send / after decide) is primary; this 8s tick is the backstop.
+  useEffect(() => {
+    const id = setInterval(refreshPending, 8_000);
+    return () => clearInterval(id);
+  }, [refreshPending]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const text = input.trim();
@@ -91,10 +119,21 @@ export default function ChatBox() {
       setMessages((m) => [...m, { role: "assistant", text: res.reply, trace: res.trace }]);
       setAttachment(null); // one-shot: the file_id was handed to the agent this turn
       void refreshConversations();
+      void refreshPending(); // the agent may have just created a pending approval
     } catch (err) {
       setMessages((m) => [...m, { role: "assistant", text: `出错了：${String(err)}` }]);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const decide = async (approvalId: string, decision: "confirm" | "deny") => {
+    try {
+      await decideApproval(approvalId, decision);
+    } catch {
+      /* the refresh below will reflect the real state */
+    } finally {
+      void refreshPending();
     }
   };
 
@@ -148,8 +187,8 @@ export default function ChatBox() {
       </div>
 
       {conversations.length > 0 && (
-        <details className="history">
-          <summary>历史会话（{conversations.length}）</summary>
+        <div className="history-always">
+          <span className="history-head">历史会话（{conversations.length}）</span>
           <ul className="history-list">
             {conversations.map((c) => (
               <li key={c.id} className={c.id === conversationId ? "active" : ""}>
@@ -166,7 +205,7 @@ export default function ChatBox() {
               </li>
             ))}
           </ul>
-        </details>
+        </div>
       )}
 
       <div className="messages">
@@ -181,6 +220,25 @@ export default function ChatBox() {
         ))}
         {busy && <div className="msg assistant muted">思考中…</div>}
       </div>
+
+      {pending.length > 0 && (
+        <div className="approval-banners">
+          {pending.map((a) => (
+            <div key={a.id} className="approval-banner">
+              <div className="approval-banner-main">
+                <span className="approval-banner-title">{a.summary}</span>
+                {a.filename && <span className="approval-banner-file">📎 {a.filename}</span>}
+              </div>
+              <span className="approval-banner-actions">
+                <button onClick={() => void decide(a.id, "confirm")}>确认执行</button>
+                <button className="ghost danger" onClick={() => void decide(a.id, "deny")}>
+                  拒绝
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <form className="composer" onSubmit={submit}>
         <input ref={attachRef} type="file" hidden onChange={onAttach} />

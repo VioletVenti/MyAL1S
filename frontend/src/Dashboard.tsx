@@ -8,7 +8,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   type Announcement,
-  type Approval,
   type Assignment,
   type DeanUpdate,
   type DocResult,
@@ -18,9 +17,7 @@ import {
   type Permissions,
   type TreeholePost,
   type Video,
-  decideApproval,
   fetchAnnouncements,
-  fetchApprovals,
   fetchAssignments,
   fetchGrades,
   fetchMaterials,
@@ -280,103 +277,6 @@ function GradeList({ items }: { items: Grade[] }) {
 
 export type DashboardView = "main" | "directory" | "settings";
 
-/** 待审批 panel (P2 agent two-phase): pending approvals the user confirms/rejects,
- *  plus a short recent-history list. The confirm dispatches the write via the
- *  backend gate (the agent run that created the approval has already ended). */
-function ApprovalsPanel({ refreshKey }: { refreshKey: number }) {
-  const { env, loading, reload } = useEnvelope(() => fetchApprovals(), { cacheKey: "approvals" });
-  useRefresh(refreshKey, reload);
-  return (
-    <Panel title="待审批" loading={loading} onReload={reload} category="notice">
-      <EnvelopeBody
-        env={env}
-        loading={loading}
-        renderData={(d) =>
-          d.approvals.length === 0 ? (
-            <p className="muted">没有待审批的写操作。</p>
-          ) : (
-            <ApprovalsList items={d.approvals} onChanged={reload} />
-          )
-        }
-      />
-    </Panel>
-  );
-}
-
-function ApprovalsList({ items, onChanged }: { items: Approval[]; onChanged: () => void }) {
-  const pending = items.filter((a) => a.status === "pending");
-  const recent = items.filter((a) => a.status !== "pending").slice(0, 8);
-  return (
-    <>
-      {pending.length === 0 ? (
-        <p className="muted">（暂无待确认项）</p>
-      ) : (
-        <ul className="list approvals">
-          {pending.map((a) => (
-            <ApprovalRow key={a.id} a={a} onChanged={onChanged} />
-          ))}
-        </ul>
-      )}
-      {recent.length > 0 && (
-        <details className="history">
-          <summary>最近处理（{recent.length}）</summary>
-          <ul className="list">
-            {recent.map((a) => (
-              <li key={a.id}>
-                <span className="title">{a.summary}</span>
-                <span className={`kind-chip ${a.status}`}>{approvalLabel(a.status)}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </>
-  );
-}
-
-function ApprovalRow({ a, onChanged }: { a: Approval; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function decide(decision: "confirm" | "deny") {
-    setBusy(true);
-    setErr(null);
-    try {
-      const env = await decideApproval(a.id, decision);
-      if ((env as { status?: string }).status === "needs_otp") {
-        setErr("需要先登录教学网（顶部登录条）再确认执行。");
-      }
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
-      onChanged();
-    }
-  }
-
-  return (
-    <li className="ann approval">
-      <div className="ann-main">
-        <span className="title">{a.summary}</span>
-        {a.filename && <span className="ddl">📎 {a.filename}</span>}
-      </div>
-      <span className="row-actions">
-        <button className="ghost" disabled={busy} onClick={() => decide("confirm")}>
-          确认执行
-        </button>
-        <button className="ghost danger" disabled={busy} onClick={() => decide("deny")}>
-          拒绝
-        </button>
-      </span>
-      {err && <div className="error">{err}</div>}
-    </li>
-  );
-}
-
-function approvalLabel(status: string): string {
-  return ({ executed: "已执行", denied: "已拒绝", failed: "失败" } as Record<string, string>)[status] ?? status;
-}
-
 function groupLabel(group: string): string {
   return ({ assignment_submission: "交作业" } as Record<string, string>)[group] ?? group;
 }
@@ -464,16 +364,47 @@ type DirModule = {
   body: ReactNode;
 };
 
+/** The dashboard's connection gate. When the session isn't established we show
+ *  ONE notice (check / not-connected) instead of mounting every panel — each
+ *  panel would otherwise cold-crawl pku3b to discover needs_otp and spin 加载中.
+ *  The LoginBar (always visible at the top of the app) handles the actual login;
+ *  once connected, App flips `connected` true and the real panels mount (warm). */
+function ConnectionGate({ connected }: { connected: boolean | null }) {
+  return (
+    <Panel title="未连接教学网" category="notice">
+      {connected === null ? (
+        <p className="muted">检查连接…</p>
+      ) : (
+        <p className="notice">
+          教学网未连接。请在页面顶部的登录条输入手机令牌（OTP）登录一次，之后即可正常查看课表 / 作业 / 成绩等。
+        </p>
+      )}
+    </Panel>
+  );
+}
+
 export default function Dashboard({
   view,
   refreshKey,
   bump,
+  connected,
 }: {
   view: DashboardView;
   refreshKey: number;
   bump: () => void;
+  connected: boolean | null;
 }): ReactNode {
   const [selected, setSelected] = useState("assignments");
+
+  // Session gate: until connected, show a single notice for either view. This
+  // avoids every panel cold-crawling pku3b and spinning on a cold load.
+  if (connected !== true) {
+    return (
+      <div className="dashboard main-view">
+        <ConnectionGate connected={connected} />
+      </div>
+    );
+  }
 
   if (view === "main") {
     return (
@@ -493,7 +424,6 @@ export default function Dashboard({
     { id: "materials", label: "课程材料", cat: "material", body: <MaterialsPanel refreshKey={refreshKey} /> },
     { id: "videos", label: "课程回放", cat: "video", body: <VideosPanel refreshKey={refreshKey} /> },
     { id: "grades", label: "成绩", cat: "grade", body: <GradesPanel refreshKey={refreshKey} /> },
-    { id: "approvals", label: "待审批", cat: "notice", body: <ApprovalsPanel refreshKey={refreshKey} /> },
   ];
   const deferred: DirModule[] = [
     { id: "dean", label: "教务通知", cat: "notice", body: <DeferredPanel<DeanUpdate> title="教务通知" futureTool="MCP: get_dean_updates" fields={["id", "title", "time", "category", "url", "summary"]} /> },
