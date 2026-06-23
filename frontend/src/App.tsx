@@ -5,7 +5,13 @@ import { fetchSession, login } from "./api";
 import { StarProvider } from "./stars";
 
 /** One-time login: enter the OTP once at startup; the session is then reused. */
-function LoginBar({ onConnected }: { onConnected: () => void }) {
+function LoginBar({
+  onConnected,
+  onLoginAttempt,
+}: {
+  onConnected: () => void;
+  onLoginAttempt: () => void;
+}) {
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err" | "info"; text: string } | null>(null);
@@ -16,6 +22,10 @@ function LoginBar({ onConnected }: { onConnected: () => void }) {
     if (!code || busy) return;
     setBusy(true);
     setMsg(null);
+    // Optimistically flip the gate to the "connecting" transition state so the
+    // dashboard shows "正在连接教学网…" (not "未连接") while the OTP is processed
+    // and the session is re-checked.
+    onLoginAttempt();
     const env = await login(code);
     setBusy(false);
     setOtp("");
@@ -87,6 +97,10 @@ export default function App() {
     void checkSession();
   }, [bump, checkSession]);
 
+  // While an OTP is being submitted, show the "connecting" transition (not the
+  // "未连接" notice) — `connected` is re-resolved by checkSession in onConnected.
+  const onLoginAttempt = useCallback(() => setConnected(null), []);
+
   return (
     <StarProvider onChange={bump}>
       <div className="app">
@@ -128,7 +142,7 @@ export default function App() {
             </button>
           </span>
         </header>
-        <LoginBar onConnected={onConnected} />
+        <LoginBar onConnected={onConnected} onLoginAttempt={onLoginAttempt} />
         <main className="layout">
           {view === "settings" ? (
             <SettingsPanel refreshKey={refreshKey} />

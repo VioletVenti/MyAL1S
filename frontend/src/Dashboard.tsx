@@ -365,15 +365,21 @@ type DirModule = {
 };
 
 /** The dashboard's connection gate. When the session isn't established we show
- *  ONE notice (check / not-connected) instead of mounting every panel — each
+ *  ONE notice (connecting / not-connected) instead of mounting every panel — each
  *  panel would otherwise cold-crawl pku3b to discover needs_otp and spin 加载中.
  *  The LoginBar (always visible at the top of the app) handles the actual login;
- *  once connected, App flips `connected` true and the real panels mount (warm). */
+ *  once connected, App flips `connected` true and the real panels mount (warm).
+ *
+ *  Three states, deliberately distinct so the post-login "connected but data not
+ *  crawled yet" window never reads as "未连接":
+ *  - null  → 正在连接教学网（initial check, or re-checking right after an OTP submit）
+ *  - false → 教学网未连接，请登录（the only place "未连接" appears）
+ *  - true  → (panels mount; this gate isn't shown) */
 function ConnectionGate({ connected }: { connected: boolean | null }) {
   return (
-    <Panel title="未连接教学网" category="notice">
+    <Panel title={connected === false ? "未连接教学网" : "正在连接教学网"} category="notice">
       {connected === null ? (
-        <p className="muted">检查连接…</p>
+        <p className="muted">正在连接教学网，登录后即开始获取课表 / 作业 / 成绩…</p>
       ) : (
         <p className="notice">
           教学网未连接。请在页面顶部的登录条输入手机令牌（OTP）登录一次，之后即可正常查看课表 / 作业 / 成绩等。

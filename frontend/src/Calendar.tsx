@@ -180,31 +180,60 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
-  const setEnv = useCallback((e: typeof env) => {
-    setEnvState(e);
-    if (e && e.status === "ok") {
-      try { localStorage.setItem(`myal1s.env.${cacheKey}`, JSON.stringify(e)); } catch { /* quota */ }
-    }
-  }, [cacheKey]);
+  // Persist a good (ok) envelope to localStorage; on a non-ok/failed fetch we
+  // fall back to the cached envelope (marked stale) instead of overwriting the
+  // timetable with an error — same resilience as useEnvelope. This is what keeps
+  // the calendar's snapshot alive across a backend restart or a slow crawl that
+  // trips the 15s timeout.
+  const applyResult = useCallback(
+    (e: typeof env) => {
+      if (e && e.status === "ok") {
+        setEnvState(e);
+        try { localStorage.setItem(`myal1s.env.${cacheKey}`, JSON.stringify(e)); } catch { /* quota */ }
+        return;
+      }
+      // Transient failure: prefer the cached envelope (marked stale), else the
+      // failure envelope itself (the inner EnvelopeBody renders a soft message).
+      try {
+        const raw = localStorage.getItem(`myal1s.env.${cacheKey}`);
+        const cached = raw ? (JSON.parse(raw) as NonNullable<typeof env>) : null;
+        if (cached && cached.status === "ok") {
+          setEnvState({ ...cached, stale: true } as NonNullable<typeof env>);
+          return;
+        }
+      } catch { /* ignore */ }
+      setEnvState(e);
+    },
+    [cacheKey],
+  );
 
   const reload = useCallback(() => {
     setLoading(true);
-    // `.catch` before `.finally` guarantees loading clears even if setEnv throws
-    // or fetchCalendar rejects (an aborted fetch) — otherwise the calendar's
-    // refresh button sticks on 加载中.
+    // `.catch` before `.finally` guarantees loading clears even if applyResult
+    // throws or fetchCalendar rejects (an aborted fetch) — otherwise the
+    // calendar's refresh button sticks on 加载中.
     fetchCalendar(week)
-      .then(setEnv)
+      .then(applyResult)
       .catch(() => {
         /* leave the last env; loading clears in finally */
       })
       .finally(() => setLoading(false));
-  }, [week, setEnv]);
+  }, [week, applyResult]);
 
   useEffect(() => {
     reload();
   }, [reload, refreshKey]);
 
-  const courseTable: Envelope<unknown> = env && env.status === "ok" ? env.data.course_table : { status: "error", message: "未加载" };
+  // When the outer envelope is ok, the inner course_table carries the portal
+  // login status; otherwise (no data yet, or a non-ok we couldn't cache) we pass
+  // a needs_otp-shaped inner envelope so EnvelopeBody shows the soft prompt
+  // instead of the old fabricated "未加载" error.
+  const courseTable: Envelope<unknown> =
+    env && env.status === "ok"
+      ? env.data.course_table
+      : env && (env as { stale?: boolean }).stale
+        ? { status: "needs_otp", mobile_mask: null, hint: "显示的是上次的数据。" }
+        : { status: "needs_otp", mobile_mask: null, hint: "正在获取课表…" };
   const items: TodoItem[] = env && env.status === "ok" ? env.data.items : [];
   const allClasses = useMemo(() => classesByDay(courseTable), [courseTable]);
   const dates = useMemo(() => datesOfWeek(week), [week]);
@@ -279,6 +308,9 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
         </span>
       </header>
       <div className="panel-body">
+        {env && (env as { stale?: boolean }).stale && (
+          <p className="stale-badge notice">离线缓存 — 显示的是上次的数据，可能在刷新后更新。</p>
+        )}
         <EnvelopeBody
           env={courseTable}
           loading={loading}

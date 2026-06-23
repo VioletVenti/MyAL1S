@@ -40,9 +40,11 @@ async function fetchWithTimeout(
 
 async function getEnvelope<T>(path: string): Promise<Envelope<T>> {
   try {
-    // Timeout prevents the loading indicator from hanging forever when the
-    // backend is slow (MCP crawl) or unreachable.
-    const res = await fetchWithTimeout(`/api${path}`);
+    // Deterministic endpoints crawl the teaching network (the calendar's
+    // composer joins several sources), which can run longer than a single-tool
+    // call on a cold cache — allow 30s. (A real hang is still bounded; and the
+    // frontend falls back to the cached snapshot on timeout anyway.)
+    const res = await fetchWithTimeout(`/api${path}`, {}, 30_000);
     if (!res.ok) return { status: "error", message: `HTTP ${res.status}` };
     return (await res.json()) as Envelope<T>;
   } catch (e) {

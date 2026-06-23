@@ -30,8 +30,18 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
   });
 }
 
+// Isolate the envelope cache across every test: the resilience fallback now
+// serves cached data on failure, so a leaked localStorage entry from a prior
+// test would change what a later test renders (and mask a crash).
+afterEach(() => {
+  localStorage.clear();
+});
+
 describe("<App/> renders without blanking", () => {
   beforeEach(() => {
+    localStorage.clear(); // isolate the envelope cache — a prior test's cached
+    // envelope would otherwise survive and mask a crash / change the rendered
+    // state (the resilience fallback now serves cached data on failure).
     vi.stubGlobal("fetch", stubFetch());
   });
   afterEach(() => {
@@ -203,6 +213,34 @@ describe("P2 write-ops UI", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("a failed fetch falls back to the cached snapshot (stale), not an error", async () => {
+    // Seed a good assignments envelope in localStorage (as a prior successful
+    // load would), then have fetch return an error. The panel must keep showing
+    // the cached data with a stale badge — NOT blank it with "出错了".
+    const cached = {
+      status: "ok",
+      data: {
+        include_finished: false,
+        assignments: [
+          { id: "ax", course: "高等数学", title: "缓存里的作业", deadline: null, deadline_raw: null, submitted: false, last_attempt: null },
+        ],
+      },
+    };
+    localStorage.setItem("myal1s.env.assignments", JSON.stringify(cached));
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({ assignments: { status: "error", message: "请求超时或已取消" } }),
+    );
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    // The cached assignment shows immediately from localStorage; once the failed
+    // fetch resolves, the fallback marks it stale (离线缓存 badge). The harsh
+    // "出错了" error never reaches the DOM.
+    await waitFor(() => expect(screen.getByText("缓存里的作业")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/离线缓存/).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/出错了/)).not.toBeInTheDocument();
   });
 
   it("settings view renders the permission matrix (not a blank page)", async () => {
