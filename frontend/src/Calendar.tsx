@@ -160,10 +160,11 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   });
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
-  // School-week for 单双周 filtering. User sets the CURRENT teaching week;
-  // the viewed week's school-week is computed by offset. 0 = unset (show all,
-  // with a badge so 单双周 courses are at least labeled).
-  const [schoolWeek, setSchoolWeek] = useState(0);
+  // School-week override for 单双周 filtering. null = use the portal's reported
+  // current teaching week (the `zc` field) automatically; a number = the user
+  // typed one explicitly. Either way the EFFECTIVE school week drives dimming of
+  // off-week classes (no manual setup needed).
+  const [weekOverride, setWeekOverride] = useState<number | null>(null);
   // "现在" rule: current wall-clock minutes, re-ticked every minute so the red
   // "you are here" line stays live across today's column.
   const [nowMin, setNowMin] = useState(() => wallNowMinutes());
@@ -238,9 +239,19 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   const allClasses = useMemo(() => classesByDay(courseTable), [courseTable]);
   const dates = useMemo(() => datesOfWeek(week), [week]);
 
+  // The portal reports the CURRENT teaching week as `zc` (周次). Use it as the
+  // default school-week so off-week classes dim automatically — no manual input
+  // needed. `weekOverride` (the user's 教学周 input) takes precedence when set.
+  const portalZc = useMemo(() => {
+    if (courseTable.status !== "ok") return 0;
+    const zc = (courseTable.data as { zc?: unknown })?.zc;
+    return typeof zc === "number" && zc > 0 ? zc : 0;
+  }, [courseTable]);
+  const schoolWeek = weekOverride ?? portalZc;
+
   // Compute the viewed week's school-week number (for 单双周 filtering).
-  // `schoolWeek` = the CURRENT week's teaching week (user-input). The viewed
-  // week's school-week = schoolWeek + the ISO-week delta from this week.
+  // `schoolWeek` = the CURRENT week's teaching week (portal zc or user input).
+  // The viewed week's school-week = schoolWeek + the ISO-week delta from today.
   const viewedSchoolWeek = useMemo(() => {
     if (schoolWeek <= 0) return 0;
     const n = new Date();
@@ -291,10 +302,14 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
               type="number"
               min={0}
               max={30}
-              value={schoolWeek || ""}
-              onChange={(e) => setSchoolWeek(Math.max(0, +e.target.value || 0))}
-              placeholder="—"
-              title="设为当前教学周次（启用单双周过滤）"
+              value={weekOverride ?? ""}
+              onChange={(e) => {
+                const v = Math.max(0, +e.target.value || 0);
+                // Empty input → clear the override, fall back to the portal's zc.
+                setWeekOverride(e.target.value === "" ? null : v);
+              }}
+              placeholder={portalZc ? String(portalZc) : "—"}
+              title="当前教学周次（留空用门户自动值；设定后启用单双周/周次淡化）"
             />
             {viewedSchoolWeek > 0 && <span className="cal-sw-viewed">第{viewedSchoolWeek}周</span>}
           </label>
