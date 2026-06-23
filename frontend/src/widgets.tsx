@@ -26,10 +26,17 @@ export function useEnvelope<T>(
 
   const reload = useCallback(() => {
     setLoading(true);
+    // The `.catch` guarantees `loading` clears even if `loader()` rejects
+    // (e.g. an aborted fetch) — without it a rejected promise skips `.finally`
+    // and the panel sticks on 加载中. All loaders used here resolve to an
+    // envelope on error, but this is the belt-and-suspenders guarantee.
     loader()
       .then((e) => {
         setEnv(e);
         if (cacheKey && e.status === "ok") writeCache(cacheKey, e);
+      })
+      .catch(() => {
+        /* leave the last env; loading clears in finally */
       })
       .finally(() => setLoading(false));
     // loader identity is stable per panel; intentional single-shot dep.

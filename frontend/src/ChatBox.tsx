@@ -188,7 +188,9 @@ export default function ChatBox() {
 
       {conversations.length > 0 && (
         <div className="history-always">
-          <span className="history-head">历史会话（{conversations.length}）</span>
+          <span className="history-head">
+            <span className="history-clock" aria-hidden>🕒</span> 历史会话（{conversations.length}）
+          </span>
           <ul className="history-list">
             {conversations.map((c) => (
               <li key={c.id} className={c.id === conversationId ? "active" : ""}>

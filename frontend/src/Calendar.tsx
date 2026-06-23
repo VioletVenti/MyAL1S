@@ -189,7 +189,15 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
 
   const reload = useCallback(() => {
     setLoading(true);
-    fetchCalendar(week).then(setEnv).finally(() => setLoading(false)).catch(() => setLoading(false));
+    // `.catch` before `.finally` guarantees loading clears even if setEnv throws
+    // or fetchCalendar rejects (an aborted fetch) — otherwise the calendar's
+    // refresh button sticks on 加载中.
+    fetchCalendar(week)
+      .then(setEnv)
+      .catch(() => {
+        /* leave the last env; loading clears in finally */
+      })
+      .finally(() => setLoading(false));
   }, [week, setEnv]);
 
   useEffect(() => {
@@ -212,23 +220,24 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
     return schoolWeek + delta;
   }, [schoolWeek, week]);
 
-  // Filter classes by 单双周 parity + week range for the viewed school week.
+  // 单双周 / week-range: instead of HIDING classes that don't run this school
+  // week, keep them all but mark the non-matching ones `inactive` so they render
+  // dimmed (still visible — you see the whole timetable, the off-week classes
+  // just fade). No 单/双 badge: the dimming IS the signal. Unset teaching week
+  // → everything active (no dimming), matching the pre-filter behaviour.
   const classes = useMemo(() => {
-    if (viewedSchoolWeek <= 0) return allClasses; // unset → show all (with badges)
     const sw = viewedSchoolWeek;
-    const filtered: Record<string, Slot[]> = {};
+    const out: Record<string, { slot: Slot; inactive: boolean }[]> = {};
     for (const [key] of WEEKDAYS) {
-      filtered[key] = (allClasses[key] ?? []).filter((c) => {
-        // Week filter: if the slot has a specific active-weeks set, the viewed
-        // school-week must be in it. Empty = every week (no range in blob).
-        if (c.weeks.length > 0 && !c.weeks.includes(sw)) return false;
-        // Parity: 单周 (odd) only on odd school weeks, 双周 (even) on even
-        if (c.parity === "odd" && sw % 2 === 0) return false;
-        if (c.parity === "even" && sw % 2 === 1) return false;
-        return true;
+      out[key] = (allClasses[key] ?? []).map((slot) => {
+        if (sw <= 0) return { slot, inactive: false };
+        const weekMatch = slot.weeks.length === 0 || slot.weeks.includes(sw);
+        const parityMatch =
+          (slot.parity !== "odd" || sw % 2 === 1) && (slot.parity !== "even" || sw % 2 === 0);
+        return { slot, inactive: !(weekMatch && parityMatch) };
       });
     }
-    return filtered;
+    return out;
   }, [allClasses, viewedSchoolWeek]);
 
   // Bucket composer items by their date for the per-day reveal.
@@ -330,7 +339,7 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                     const today = todayUtcKey() === dKey;
                     return (
                       <div key={dKey} className={`cal-col${today ? " today" : ""}`} style={{ height: axisHeight }}>
-                        {cls.map((c) => {
+                        {cls.map(({ slot: c, inactive }) => {
                           const t = PERIOD_TIMES[c.period];
                           if (!t) return null;
                           const top = (t.start - DAY_START_MIN) * PX_PER_MIN;
@@ -338,14 +347,11 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                           return (
                             <div
                               key={c.period}
-                              className={`cal-block${c.parity !== "all" ? ` parity-${c.parity}` : ""}`}
-                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}${c.parity === "odd" ? " · 单周" : c.parity === "even" ? " · 双周" : ""}`}
+                              className={`cal-block${inactive ? " inactive" : ""}`}
+                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}${inactive ? " · 本周不上" : ""}`}
                               style={{ top, height: h }}
                             >
-                              <span className="cal-block-name">
-                                {c.name}
-                                {c.parity !== "all" && <span className="cal-parity-badge">{c.parity === "odd" ? "单" : "双"}</span>}
-                              </span>
+                              <span className="cal-block-name">{c.name}</span>
                               {c.room && <span className="cal-block-room">{c.room}</span>}
                             </div>
                           );

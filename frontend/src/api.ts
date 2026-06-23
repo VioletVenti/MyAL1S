@@ -10,37 +10,61 @@ export type Envelope<T> =
   | { status: "needs_otp"; mobile_mask: string | null; hint: string }
   | { status: "error"; message: string };
 
-async function getEnvelope<T>(path: string): Promise<Envelope<T>> {
+/** Default per-request timeout. A slow MCP crawl can run long, but 15s is long
+ *  enough that a hung request is clearly broken, not merely slow. */
+const DEFAULT_TIMEOUT_MS = 15_000;
+
+/** Is `e` an AbortError — either our own timeout abort or a deliberate one (e.g.
+ *  React unmounting a component mid-fetch)? We treat both as a CLEAN, expected
+ *  condition, never a surfaced `AbortError: signal is aborted without reason`
+ *  (that string leaked into the UI via String(e) before). */
+function isAbort(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "AbortError";
+}
+
+/** fetch + a timeout. On abort (timeout or otherwise) we throw a typed Error so
+ *  callers can map it to a friendly message instead of `String(AbortError)`. */
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // 15s timeout — prevents the loading indicator from hanging forever when
-    // the backend is slow (MCP crawl) or unreachable.
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 15_000);
-    const res = await fetch(`/api${path}`, { signal: controller.signal });
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
     clearTimeout(id);
-    if (!res.ok) return { status: "error", message: `HTTP ${res.status}` };
-    return (await res.json()) as Envelope<T>;
-  } catch (e) {
-    return { status: "error", message: String(e) };
   }
 }
 
-async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 15_000);
+async function getEnvelope<T>(path: string): Promise<Envelope<T>> {
   try {
-    const res = await fetch(`/api${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(id);
+    // Timeout prevents the loading indicator from hanging forever when the
+    // backend is slow (MCP crawl) or unreachable.
+    const res = await fetchWithTimeout(`/api${path}`);
+    if (!res.ok) return { status: "error", message: `HTTP ${res.status}` };
+    return (await res.json()) as Envelope<T>;
+  } catch (e) {
+    // An abort (timeout / unmount) is a clean expected condition — surface a
+    // short friendly message, never the raw `AbortError: ...` string.
+    return { status: "error", message: isAbort(e) ? "请求超时或已取消" : String(e) };
+  }
+}
+
+async function postJSON<T>(path: string, body: unknown, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+  try {
+    const res = await fetchWithTimeout(
+      `/api${path}`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      timeoutMs,
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as T;
   } catch (e) {
-    clearTimeout(id);
-    throw e;
+    // Translate aborts to a friendly error so the UI shows "请求超时" rather than
+    // the raw AbortError string; rethrow so the caller's catch still runs.
+    throw isAbort(e) ? new Error("请求超时或已取消") : e;
   }
 }
 
@@ -166,7 +190,7 @@ export async function setStar(
 }
 
 export async function removeStar(source: StarSource, item_id: string): Promise<void> {
-  const res = await fetch(`/api/stars/${source}/${encodeURIComponent(item_id)}`, {
+  const res = await fetchWithTimeout(`/api/stars/${source}/${encodeURIComponent(item_id)}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -179,7 +203,7 @@ export async function updateCustomItem(
   id: number,
   patch: Partial<CustomItemInput & { done: boolean }>,
 ): Promise<void> {
-  const res = await fetch(`/api/custom-items/${id}`, {
+  const res = await fetchWithTimeout(`/api/custom-items/${id}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(patch),
@@ -188,7 +212,7 @@ export async function updateCustomItem(
 }
 
 export async function deleteCustomItem(id: number): Promise<void> {
-  const res = await fetch(`/api/custom-items/${id}`, { method: "DELETE" });
+  const res = await fetchWithTimeout(`/api/custom-items/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -250,13 +274,13 @@ export function sendChat(
 }
 
 export async function getModels(): Promise<{ models: ModelOption[] }> {
-  const res = await fetch("/api/models");
+  const res = await fetchWithTimeout("/api/models");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as { models: ModelOption[] };
 }
 
 export async function listConversations(): Promise<ConversationSummary[]> {
-  const res = await fetch("/api/conversations");
+  const res = await fetchWithTimeout("/api/conversations");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()).conversations;
 }
@@ -264,13 +288,13 @@ export async function listConversations(): Promise<ConversationSummary[]> {
 export async function getConversation(
   id: string,
 ): Promise<{ id: string; messages: ConversationMessage[] }> {
-  const res = await fetch(`/api/conversations/${id}`);
+  const res = await fetchWithTimeout(`/api/conversations/${id}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as { id: string; messages: ConversationMessage[] };
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+  const res = await fetchWithTimeout(`/api/conversations/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -313,16 +337,12 @@ export interface Permissions {
 export async function uploadAttachment(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch("/api/uploads", { method: "POST", body: form, signal: controller.signal });
-    clearTimeout(id);
+    const res = await fetchWithTimeout("/api/uploads", { method: "POST", body: form });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as UploadResult;
   } catch (e) {
-    clearTimeout(id);
-    throw e;
+    throw isAbort(e) ? new Error("上传超时或已取消") : e;
   }
 }
 
@@ -334,16 +354,13 @@ export async function submitAssignment(
   const form = new FormData();
   form.append("assignment_id", assignmentId);
   form.append("file", file);
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 60_000); // uploading may take longer
   try {
-    const res = await fetch("/api/submit", { method: "POST", body: form, signal: controller.signal });
-    clearTimeout(id);
+    // Uploading a homework file may take longer than a normal request.
+    const res = await fetchWithTimeout("/api/submit", { method: "POST", body: form }, 60_000);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as Record<string, unknown>;
   } catch (e) {
-    clearTimeout(id);
-    throw e;
+    throw isAbort(e) ? new Error("提交超时或已取消") : e;
   }
 }
 
@@ -358,13 +375,17 @@ export async function decideApproval(
 }
 
 export async function fetchPermissions(): Promise<Permissions> {
-  const res = await fetch("/api/permissions");
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as Permissions;
+  try {
+    const res = await fetchWithTimeout("/api/permissions");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as Permissions;
+  } catch (e) {
+    throw isAbort(e) ? new Error("请求超时或已取消") : e;
+  }
 }
 
 export async function setPermission(group: string, level: string): Promise<void> {
-  const res = await fetch(`/api/permissions/${encodeURIComponent(group)}`, {
+  const res = await fetchWithTimeout(`/api/permissions/${encodeURIComponent(group)}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ level }),
@@ -437,9 +458,16 @@ export async function login(otp: string): Promise<Envelope<LoginResult>> {
 }
 
 /** Cheap single connection check — the dashboard's "am I logged in?" gate. Used
- *  to show one "未连接，请登录" notice instead of every panel cold-crawling. */
+ *  to show one "未连接，请登录" notice instead of every panel cold-crawling. Has a
+ *  timeout so a hung backend can't leave the gate spinning on "检查连接…" — on
+ *  any failure (including an abort) it reports not-connected, so the notice
+ *  shows instead of a perpetual 加载中. */
 export async function fetchSession(): Promise<{ connected: boolean }> {
-  const res = await fetch("/api/session");
-  if (!res.ok) return { connected: false };
-  return (await res.json()) as { connected: boolean };
+  try {
+    const res = await fetchWithTimeout("/api/session");
+    if (!res.ok) return { connected: false };
+    return (await res.json()) as { connected: boolean };
+  } catch {
+    return { connected: false }; // timeout / network → treat as not connected
+  }
 }

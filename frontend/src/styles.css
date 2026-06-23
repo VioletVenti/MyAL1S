@@ -580,22 +580,10 @@ pre {
   font-family: var(--font-mono);
 }
 
-/* 单双周 badge on class blocks */
-.cal-parity-badge {
-  display: inline-block;
-  background: rgba(255, 255, 255, 0.3);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 3px;
-  padding: 0 0.25rem;
-  font-size: 0.6rem;
-  font-weight: 600;
-  margin-left: 0.2rem;
-  vertical-align: middle;
-}
-/* 单周 vs 双周: slightly different block tint for visual distinction */
-.cal-block.parity-odd { border: 1px solid var(--lake); }
-.cal-block.parity-even { border: 1px dashed rgba(255,255,255,0.7); }
+/* 单双周: a class that doesn't run this school week is rendered DIMMED (not
+ * hidden) — you still see the whole timetable; off-week classes just fade. No
+ * 单/双 badge: the dimming is the only signal. */
+.cal-block.inactive { opacity: 0.3; filter: grayscale(0.5); }
 
 /* ---- P2 write-ops: matrix / approvals / attach chip -------------------- */
 .matrix-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
@@ -637,12 +625,15 @@ pre {
   border-radius: var(--radius-sm);
 }
 .history-always .history-head {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   font-size: 0.75rem;
   color: var(--ink-3);
   margin-bottom: 0.2rem;
   padding-left: 0.1rem;
 }
+.history-always .history-clock { font-size: 0.85rem; }
 .history-always .history-list { max-height: 6.5rem; margin: 0; }
 
 /* Inline approval banners sit just above the composer — the agent's pending
