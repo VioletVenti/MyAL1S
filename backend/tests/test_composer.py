@@ -278,11 +278,14 @@ def test_composer_and_dashboard_route_cannot_reach_the_llm() -> None:
     so a docstring that merely *mentions* `pydantic_ai` (e.g. 'this module
     imports no pydantic_ai') does not trip a naive substring check.
 
-    Covers every route module EXCEPT `chat` (the one legitimate LLM path) plus
-    the Composer. P2 added uploads/approvals/submit/permissions — all LLM-free."""
+    Covers every route module EXCEPT `chat` (the one legitimate LLM path), plus
+    the Composer AND the write-side modules (PermissionGate, Uploads) — those stay
+    LLM-free too (the gate talks to the gateway through a Protocol, never the
+    agent). P2 added uploads/approvals/submit/permissions + permissions/uploads."""
     import ast
 
     import app.composer as composer
+    import app.permissions as permissions_mod
     import app.routes.approvals as approvals
     import app.routes.dashboard as dashboard
     import app.routes.deterministic as deterministic
@@ -290,10 +293,12 @@ def test_composer_and_dashboard_route_cannot_reach_the_llm() -> None:
     import app.routes.session as session
     import app.routes.submit as submit
     import app.routes.uploads as uploads
+    import app.uploads as uploads_mod
 
     no_llm_modules = [
         composer, deterministic, dashboard, session,
         uploads, approvals, submit, permissions_route,
+        permissions_mod, uploads_mod,
     ]
 
     def _imports_pydantic_ai(mod) -> bool:
@@ -314,14 +319,16 @@ def test_composer_and_dashboard_route_cannot_reach_the_llm() -> None:
 
 def test_read_side_cannot_import_the_permission_gate() -> None:
     """Side-effect isolation (P2): the read path must stay free of writes. The
-    Composer, the deterministic route, and the dashboard route must NOT import
-    `app.permissions` (the gate dispatches writes). Mirrors the no-LLM AST check
-    so a docstring mentioning 'permissions' does not trip it."""
+    Composer, the deterministic route, the dashboard route, AND the session route
+    (login + prefetch, all read-side) must NOT import `app.permissions` (the gate
+    dispatches writes). Mirrors the no-LLM AST check so a docstring mentioning
+    'permissions' does not trip it."""
     import ast
 
     import app.composer as composer
     import app.routes.dashboard as dashboard
     import app.routes.deterministic as deterministic
+    import app.routes.session as session
 
     def _imports_permissions(mod) -> bool:
         tree = ast.parse(inspect.getsource(mod))
@@ -335,7 +342,7 @@ def test_read_side_cannot_import_the_permission_gate() -> None:
                     return True
         return False
 
-    for mod in (composer, deterministic, dashboard):
+    for mod in (composer, deterministic, dashboard, session):
         assert not _imports_permissions(mod), (
             f"{mod.__name__} imports the permission gate — the read path must stay write-free"
         )

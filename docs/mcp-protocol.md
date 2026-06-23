@@ -87,6 +87,11 @@ both holding the same envelope:
 client should surface as "log in first". Clients add a `{status:"error"}` form
 when a call raises.
 
+> The **MCP tools** themselves only ever emit `ok` / `needs_otp` / `error`. The
+> P2 **write-path statuses** (`pending_approval`, `denied`, `already_decided`)
+> are produced by the backend's PermissionGate (not by `tools/call`); see
+> `docs/architecture.md` → "Write path (P2)".
+
 ## Auth model
 
 The server reuses pku3b's `cfg.toml` (credentials) and `ua.json` (cookies).

@@ -312,6 +312,30 @@ describe("P2 write-ops UI", () => {
     expect(screen.getByText(/交作业: hw1\.pdf/)).toBeInTheDocument();
   });
 
+  it("a confirm whose execution hits needs_otp shows 需先登录 on the banner", async () => {
+    const pending = [
+      {
+        id: "ap1", conversation_id: null, tool_name: "submit_assignment",
+        group_name: "assignment_submission", args: { assignment_id: "a1", file_id: "f1" },
+        filename: "hw1.pdf", summary: "交作业: hw1.pdf", status: "pending",
+        result: null, created_at: "2026-06-23T00:00:00+00:00", decided_at: null,
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        approvals: { status: "ok", data: { approvals: pending } },
+        // The decide POST returns needs_otp (session expired mid-approval); the
+        // banner must surface "需先登录" instead of silently redrawing.
+        "approvals/ap1/decide": { status: "needs_otp", mobile_mask: null, hint: "登录" },
+      }),
+    );
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认执行" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await waitFor(() => expect(screen.getByText(/需先登录/)).toBeInTheDocument());
+  });
+
   it("the chat shows an always-visible 历史会话 list", async () => {
     vi.stubGlobal(
       "fetch",

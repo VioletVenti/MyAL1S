@@ -257,8 +257,14 @@ Every tool returns one of:
 ```
 
 The gateway adds a third for the deterministic path when a tool reports `isError`
-(e.g. pku3b not configured): `{ "status": "error", "message": "…" }`. The
-frontend branches on `status`.
+(e.g. pku3b not configured): `{ "status": "error", "message": "…" }`.
+
+**P2 adds write-path statuses** (returned by the PermissionGate, not MCP tools;
+documented in "Write path (P2)"): `{ "status": "pending_approval",
+"approval_id": …, "summary": … }` (the agent tool's two-phase request — the run
+ends here), `{ "status": "denied", "message": … }` (matrix blocked), and
+`{ "status": "already_decided", "approval": … }` (a repeat confirm/deny no-op).
+The frontend branches on `status`.
 
 ## Process & runtime boundary
 

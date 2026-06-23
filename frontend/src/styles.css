@@ -632,6 +632,7 @@ pre {
 .approval-banner-main { flex: 1; display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 .approval-banner-title { font-weight: 600; color: var(--lake-deep); }
 .approval-banner-file { font-size: 0.8rem; color: var(--ink-3); }
+.approval-banner-msg { font-size: 0.78rem; color: var(--warn); }
 .approval-banner-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
 
 /* Session gate notice (shown in lieu of the dashboard when not connected). */

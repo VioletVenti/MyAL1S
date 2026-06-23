@@ -127,11 +127,30 @@ export default function ChatBox() {
     }
   };
 
+  // Per-approval message shown on its banner (e.g. a confirm whose execution hit
+  // needs_otp — the session expired between request and approve). Cleared on a
+  // successful refresh. Keyed by approval id.
+  const [approvalMsg, setApprovalMsg] = useState<Record<string, string>>({});
+
   const decide = async (approvalId: string, decision: "confirm" | "deny") => {
     try {
-      await decideApproval(approvalId, decision);
+      const res = await decideApproval(approvalId, decision);
+      const status = (res as { status?: string }).status;
+      // A confirm that dispatches but the session expired → needs_otp. The row
+      // stays pending (not executed), so without surfacing this the banner just
+      // silently redraws and the user is left guessing. Tell them to log in.
+      if (decision === "confirm" && status === "needs_otp") {
+        setApprovalMsg((m) => ({ ...m, [approvalId]: "需先登录教学网（顶部 OTP 登录一次）再确认执行。" }));
+      } else {
+        setApprovalMsg((m) => {
+          if (!(approvalId in m)) return m;
+          const next = { ...m };
+          delete next[approvalId];
+          return next;
+        });
+      }
     } catch {
-      /* the refresh below will reflect the real state */
+      setApprovalMsg((m) => ({ ...m, [approvalId]: "确认失败，请重试。" }));
     } finally {
       void refreshPending();
     }
@@ -230,6 +249,7 @@ export default function ChatBox() {
               <div className="approval-banner-main">
                 <span className="approval-banner-title">{a.summary}</span>
                 {a.filename && <span className="approval-banner-file">📎 {a.filename}</span>}
+                {approvalMsg[a.id] && <span className="approval-banner-msg">{approvalMsg[a.id]}</span>}
               </div>
               <span className="approval-banner-actions">
                 <button onClick={() => void decide(a.id, "confirm")}>确认执行</button>
