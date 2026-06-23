@@ -554,30 +554,12 @@ pre {
   * { transition: none !important; animation: none !important; }
 }
 
-/* ---- school-week input (单双周 filtering) ---- */
-.cal-school-week {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+/* ---- 单双周 parity pill (auto-inferred; click to flip) ---- */
+.cal-parity-pill {
   font-size: 0.78rem;
-  color: var(--ink-3);
-}
-.cal-school-week input {
-  width: 2.5rem;
-  padding: 0.2rem 0.3rem;
-  border: 1px solid var(--wave);
-  border-radius: var(--radius-sm);
-  background: #fff;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  text-align: center;
-}
-.cal-sw-viewed {
-  color: var(--lake-deep);
   font-weight: 600;
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
+  color: var(--lake-deep);
+  border-color: var(--wave);
 }
 
 /* 单双周: a class that doesn't run this school week is rendered DIMMED (not

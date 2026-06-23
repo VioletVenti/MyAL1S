@@ -168,12 +168,12 @@ describe("Calendar renders the time-axis timetable", () => {
     expect(container.textContent).toContain("8:00");
   });
 
-  it("dims a 单周 class once the teaching week is set (persisted)", async () => {
-    // REALITY: the portal course-table has NO current-week field, so dimming
-    // only starts once the user sets the teaching week (persisted in localStorage).
-    // Seed a stored week=2 (even); a 单周 class must dim. Blob shape mirrors the
-    // live portal (courseName carries the week info; no top-level zc).
-    localStorage.setItem("myal1s.schoolWeek", "2");
+  it("auto-dims a 双周 class when the viewed week is 单周 (no manual entry)", async () => {
+    // The portal course-table has NO current-week field. Dimming is driven by a
+    // parity anchor ("本周是单周") pinned once — no 教学周 input. Pin the viewed
+    // week 2026-W26 as 单(odd); a 双周 class must dim, an every-week class not.
+    localStorage.setItem("myal1s.oddAnchorWeek", "2026-W26");
+    localStorage.setItem("myal1s.oddAnchorParity", "odd");
     const calResp = {
       status: "ok",
       data: {
@@ -183,8 +183,10 @@ describe("Calendar renders the time-axis timetable", () => {
           status: "ok",
           data: {
             success: true,
-            // NOTE: no `zc` — the real payload has only course/remark/success.
-            course: [{ mon: { courseName: "单周课<br>上课信息：1-15周 单周 理教101 教师：张三", parity: "", sty: "" } }],
+            course: [
+              { mon: { courseName: "双周课<br>上课信息：1-15周 双周 二教421 教师：王福正", parity: "", sty: "" } },
+              { tue: { courseName: "每周课<br>上课信息：1-15周 每周 二教205 教师：刘培东", parity: "", sty: "" } },
+            ],
           },
         },
       },
@@ -192,19 +194,20 @@ describe("Calendar renders the time-axis timetable", () => {
     vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
     const { container } = render(<Calendar refreshKey={0} />);
     await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
-    // week=2 (even) → 单周 class is inactive this week: rendered, but dimmed.
-    await waitFor(() => {
-      const block = container.querySelector(".cal-block") as HTMLElement;
-      expect(block).toBeTruthy();
-      expect(block.classList.contains("inactive")).toBe(true);
-    });
-    expect(container.querySelectorAll(".cal-block").length).toBeGreaterThanOrEqual(1);
-    // The setup prompt is gone once a week is set.
-    expect(container.querySelector(".cal-week-setup")).toBeNull();
+    const blocks = container.querySelectorAll(".cal-block");
+    // 双周 class on a 单(odd) week → dimmed; every-week class → active.
+    const dims = [...blocks].filter((b) => b.classList.contains("inactive"));
+    expect(dims.length).toBe(1);
+    // No manual 教学周 input exists anymore.
+    expect(container.querySelector(".cal-school-week")).toBeNull();
+    expect(container.querySelector('input[type="number"]')).toBeNull();
   });
 
-  it("shows a one-time setup prompt and does NOT dim when no week is set", async () => {
-    // No stored week → prompt shows, and nothing dims (no current week to judge).
+  it("flipping the parity pill toggles which 单/双 classes dim", async () => {
+    // Same anchor 2026-W26 = odd → 双周 dims. Click the pill → flips to even →
+    // 双周 stops dimming (now active on an even week). Proves the auto-inference.
+    localStorage.setItem("myal1s.oddAnchorWeek", "2026-W26");
+    localStorage.setItem("myal1s.oddAnchorParity", "odd");
     const calResp = {
       status: "ok",
       data: {
@@ -212,19 +215,17 @@ describe("Calendar renders the time-axis timetable", () => {
         items: [],
         course_table: {
           status: "ok",
-          data: {
-            success: true,
-            course: [{ mon: { courseName: "单周课<br>上课信息：1-15周 单周 理教101 教师：张三", parity: "", sty: "" } }],
-          },
+          data: { success: true, course: [{ mon: { courseName: "双周课<br>上课信息：1-15周 双周 二教421 教师：王福正", parity: "", sty: "" } }] },
         },
       },
     };
     vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
     const { container } = render(<Calendar refreshKey={0} />);
     await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
-    expect(container.querySelector(".cal-week-setup")).toBeTruthy();
-    const block = container.querySelector(".cal-block") as HTMLElement;
-    expect(block.classList.contains("inactive")).toBe(false);
+    const block = () => container.querySelector(".cal-block") as HTMLElement;
+    await waitFor(() => expect(block().classList.contains("inactive")).toBe(true)); // 双周 on odd week
+    fireEvent.click(screen.getByRole("button", { name: /本周单周/ }));
+    await waitFor(() => expect(block().classList.contains("inactive")).toBe(false)); // now even → 双周 active
   });
 });
 
