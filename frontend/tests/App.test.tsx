@@ -168,10 +168,12 @@ describe("Calendar renders the time-axis timetable", () => {
     expect(container.textContent).toContain("8:00");
   });
 
-  it("auto-dims (does NOT hide) a 单周 class on an even school week — no manual input", async () => {
-    // A course-table whose portal reports the CURRENT teaching week as 2 (even,
-    // via `zc`), with a 单周 period-1 class on Monday. The class must dim
-    // AUTOMATICALLY (the portal zc drives it) — no manual 教学周 input needed.
+  it("dims a 单周 class once the teaching week is set (persisted)", async () => {
+    // REALITY: the portal course-table has NO current-week field, so dimming
+    // only starts once the user sets the teaching week (persisted in localStorage).
+    // Seed a stored week=2 (even); a 单周 class must dim. Blob shape mirrors the
+    // live portal (courseName carries the week info; no top-level zc).
+    localStorage.setItem("myal1s.schoolWeek", "2");
     const calResp = {
       status: "ok",
       data: {
@@ -180,9 +182,9 @@ describe("Calendar renders the time-axis timetable", () => {
         course_table: {
           status: "ok",
           data: {
-            nowXnxq: { xndxq: "2025-20262" },
-            zc: 2, // current teaching week = 2 (even)
-            course: [{ mon: { courseName: "单周课 上课信息：1-15周 单周 理教101 教师：张三" } }],
+            success: true,
+            // NOTE: no `zc` — the real payload has only course/remark/success.
+            course: [{ mon: { courseName: "单周课<br>上课信息：1-15周 单周 理教101 教师：张三", parity: "", sty: "" } }],
           },
         },
       },
@@ -190,20 +192,19 @@ describe("Calendar renders the time-axis timetable", () => {
     vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
     const { container } = render(<Calendar refreshKey={0} />);
     await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
-    // The 单周 class is dimmed automatically (zc=2 = even week; 单周 inactive on
-    // even weeks) — still rendered, NOT filtered out. No manual input was given.
+    // week=2 (even) → 单周 class is inactive this week: rendered, but dimmed.
     await waitFor(() => {
       const block = container.querySelector(".cal-block") as HTMLElement;
       expect(block).toBeTruthy();
       expect(block.classList.contains("inactive")).toBe(true);
     });
     expect(container.querySelectorAll(".cal-block").length).toBeGreaterThanOrEqual(1);
-    expect(container.querySelector(".cal-parity-badge")).toBeNull();
+    // The setup prompt is gone once a week is set.
+    expect(container.querySelector(".cal-week-setup")).toBeNull();
   });
 
-  it("an every-week class is NOT dimmed on an auto-detected odd school week", async () => {
-    // zc=3 (odd), every-week (无单双周) class → active, not dimmed. Guards the
-    // common case so legit-this-week classes don't get faded.
+  it("shows a one-time setup prompt and does NOT dim when no week is set", async () => {
+    // No stored week → prompt shows, and nothing dims (no current week to judge).
     const calResp = {
       status: "ok",
       data: {
@@ -212,9 +213,8 @@ describe("Calendar renders the time-axis timetable", () => {
         course_table: {
           status: "ok",
           data: {
-            nowXnxq: { xndxq: "2025-20262" },
-            zc: 3, // odd
-            course: [{ mon: { courseName: "每周课 上课信息：1-15周 每周 理教101 教师：张三" } }],
+            success: true,
+            course: [{ mon: { courseName: "单周课<br>上课信息：1-15周 单周 理教101 教师：张三", parity: "", sty: "" } }],
           },
         },
       },
@@ -222,6 +222,7 @@ describe("Calendar renders the time-axis timetable", () => {
     vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
     const { container } = render(<Calendar refreshKey={0} />);
     await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
+    expect(container.querySelector(".cal-week-setup")).toBeTruthy();
     const block = container.querySelector(".cal-block") as HTMLElement;
     expect(block.classList.contains("inactive")).toBe(false);
   });

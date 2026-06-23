@@ -151,6 +151,11 @@ function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
 
 // ---- component -----------------------------------------------------------
 
+// The user's current teaching week, persisted so the one-time setup survives a
+// reload. The portal payload has no current-week field, so this is the ONLY
+// source of "today is week N" — without it, off-week classes can't be dimmed.
+const SCHOOL_WEEK_KEY = "myal1s.schoolWeek";
+
 export default function Calendar({ refreshKey }: { refreshKey: number }) {
   // Initial week from today (UTC-normalized, matching dateKey); memoized so it
   // is stable across renders.
@@ -160,11 +165,28 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   });
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
-  // School-week override for 单双周 filtering. null = use the portal's reported
-  // current teaching week (the `zc` field) automatically; a number = the user
-  // typed one explicitly. Either way the EFFECTIVE school week drives dimming of
-  // off-week classes (no manual setup needed).
-  const [weekOverride, setWeekOverride] = useState<number | null>(null);
+  // School-week for 单双周 / week-range dimming. The portal course-table payload
+  // carries NO current-week field (only course/remark/success — verified against
+  // the live response), so this MUST be user-supplied. It is persisted to
+  // localStorage so the one-time setup sticks across reloads. null = not set yet
+  // → a one-time inline prompt asks for it; until set, nothing dims.
+  const [weekOverride, setWeekOverride] = useState<number | null>(() => {
+    try {
+      const v = localStorage.getItem(SCHOOL_WEEK_KEY);
+      return v ? Number(v) || null : null;
+    } catch {
+      return null;
+    }
+  });
+  const persistWeek = useCallback((w: number | null) => {
+    setWeekOverride(w);
+    try {
+      if (w && w > 0) localStorage.setItem(SCHOOL_WEEK_KEY, String(w));
+      else localStorage.removeItem(SCHOOL_WEEK_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
   // "现在" rule: current wall-clock minutes, re-ticked every minute so the red
   // "you are here" line stays live across today's column.
   const [nowMin, setNowMin] = useState(() => wallNowMinutes());
@@ -239,19 +261,10 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   const allClasses = useMemo(() => classesByDay(courseTable), [courseTable]);
   const dates = useMemo(() => datesOfWeek(week), [week]);
 
-  // The portal reports the CURRENT teaching week as `zc` (周次). Use it as the
-  // default school-week so off-week classes dim automatically — no manual input
-  // needed. `weekOverride` (the user's 教学周 input) takes precedence when set.
-  const portalZc = useMemo(() => {
-    if (courseTable.status !== "ok") return 0;
-    const zc = (courseTable.data as { zc?: unknown })?.zc;
-    return typeof zc === "number" && zc > 0 ? zc : 0;
-  }, [courseTable]);
-  const schoolWeek = weekOverride ?? portalZc;
-
-  // Compute the viewed week's school-week number (for 单双周 filtering).
-  // `schoolWeek` = the CURRENT week's teaching week (portal zc or user input).
-  // The viewed week's school-week = schoolWeek + the ISO-week delta from today.
+  // `schoolWeek` = the CURRENT week's teaching-week number (user-set, persisted).
+  // The viewed week's school-week = schoolWeek + the ISO-week delta from today,
+  // so switching weeks dims the right classes in past/future weeks too.
+  const schoolWeek = weekOverride ?? 0;
   const viewedSchoolWeek = useMemo(() => {
     if (schoolWeek <= 0) return 0;
     const n = new Date();
@@ -305,11 +318,11 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
               value={weekOverride ?? ""}
               onChange={(e) => {
                 const v = Math.max(0, +e.target.value || 0);
-                // Empty input → clear the override, fall back to the portal's zc.
-                setWeekOverride(e.target.value === "" ? null : v);
+                // Empty → clear the stored week (no dimming until re-set).
+                persistWeek(e.target.value === "" ? null : v);
               }}
-              placeholder={portalZc ? String(portalZc) : "—"}
-              title="当前教学周次（留空用门户自动值；设定后启用单双周/周次淡化）"
+              placeholder="当前周"
+              title="设为当前教学周次（启用单双周/周次淡化，会自动记住）"
             />
             {viewedSchoolWeek > 0 && <span className="cal-sw-viewed">第{viewedSchoolWeek}周</span>}
           </label>
@@ -325,6 +338,14 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
       <div className="panel-body">
         {env && (env as { stale?: boolean }).stale && (
           <p className="stale-badge notice">离线缓存 — 显示的是上次的数据，可能在刷新后更新。</p>
+        )}
+        {/* One-time setup prompt: dimming needs the current teaching week, which
+            the portal does NOT provide. Ask once; once set (and persisted), this
+            hides and off-week classes start dimming. */}
+        {!weekOverride && (
+          <p className="stale-badge notice cal-week-setup">
+            设一次当前教学周（右上「教学周」输入框），不在本周的课会自动变淡。设置后会被记住，无需重复。
+          </p>
         )}
         <EnvelopeBody
           env={courseTable}
