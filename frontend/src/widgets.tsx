@@ -12,7 +12,12 @@ import type { Envelope } from "./api";
  * previous content instantly, before the network resolves. (The backend snapshot
  * cache survives a backend restart; localStorage covers the browser-refresh
  * instant first paint. Both compose.) localStorage failures are swallowed — the
- * hook degrades to memory-only, never throws. */
+ * hook degrades to memory-only, never throws.
+ *
+ * On a transient failure (timeout / network / needs_otp) the hook does NOT
+ * replace the visible data with an error envelope — it keeps the cached
+ * envelope (marked `stale`) so a slow crawl or a restart doesn't blank the
+ * panel. The error is only surfaced when no cache exists. */
 export function useEnvelope<T>(
   loader: () => Promise<Envelope<T>>,
   opts?: { cacheKey?: string },
@@ -26,10 +31,25 @@ export function useEnvelope<T>(
 
   const reload = useCallback(() => {
     setLoading(true);
+    // On a transient failure (a 15s timeout while the MCP crawl is still
+    // running, a network blip, a partial-session needs_otp) we DO NOT blank the
+    // panel with an error envelope — that would overwrite the last good data
+    // (the "快照被出错了覆盖" bug). Instead we keep showing the cached envelope,
+    // marked `stale`, and only surface the failure when there is no cache at all.
+    // This mirrors the backend's own live-or-snapshot fallback (`_cached`).
     loader()
       .then((e) => {
-        setEnv(e);
-        if (cacheKey && e.status === "ok") writeCache(cacheKey, e);
+        if (e.status === "ok") {
+          setEnv(e);
+          if (cacheKey) writeCache(cacheKey, e);
+        } else {
+          setEnv(fallbackOrError<T>(e, cacheKey));
+        }
+      })
+      .catch(() => {
+        // A throwing loader (e.g. an aborted fetch): same fallback. Never crash,
+        // never blank a cached panel.
+        setEnv(fallbackOrError<T>(null, cacheKey));
       })
       .finally(() => setLoading(false));
     // loader identity is stable per panel; intentional single-shot dep.
@@ -59,6 +79,21 @@ function writeCache(key: string, value: unknown): void {
   } catch {
     /* quota / disabled — degrade silently */
   }
+}
+
+/** Decide what to display after a non-ok (or thrown) fetch. Prefer the last
+ *  good cached envelope, marked `stale`, so the panel keeps showing real data
+ *  through a timeout/restart instead of an error. Only when there's no cache do
+ *  we surface the failure envelope (`e`), or a generic error if the loader
+ *  threw (`e === null`). */
+function fallbackOrError<T>(e: Envelope<T> | null, cacheKey: string | undefined): Envelope<T> | null {
+  if (cacheKey) {
+    const cached = readCache<Envelope<T>>(cacheKey);
+    if (cached && cached.status === "ok") {
+      return { ...cached, stale: true } as Envelope<T>;
+    }
+  }
+  return e ?? ({ status: "error", message: "请求失败，稍后自动重试" } as Envelope<T>);
 }
 
 /** Re-run `reload` when `refreshKey` changes (login / auto-refresh / mutations),
@@ -154,21 +189,25 @@ export function EnvelopeBody<T>({
   loading: boolean;
   renderData: (data: T) => ReactNode;
 }) {
-  if (!env) return <p className="muted">{loading ? "加载中…" : "—"}</p>;
+  if (!env) return <p className="muted">{loading ? "正在获取…" : "暂无数据"}</p>;
   if (env.status === "needs_otp")
     return (
       <p className="notice">
         需要登录 / 手机令牌{env.mobile_mask ? `（${env.mobile_mask}）` : ""}。{env.hint}
       </p>
     );
-  if (env.status === "error") return <p className="error">出错了：{env.message}</p>;
+  if (env.status === "error")
+    // Only reached when there is no cached snapshot to fall back to (a genuine
+    // first-run failure). Soft, non-red — the panel will auto-retry on the next
+    // refresh; the harsh "出错了：…" is reserved for unexpected shapes below.
+    return <p className="muted">{env.message || "暂时无法获取，稍后自动重试"}</p>;
   const stale = (env as { stale?: boolean }).stale;
   const fetchedAt = (env as { fetched_at?: string }).fetched_at;
   return (
     <>
       {stale && (
         <p className="stale-badge notice">
-          离线缓存（上次更新{fetchedAt ? ` ${fmtStamp(fetchedAt)}` : ""}）— 登录后可刷新。
+          离线缓存（上次更新{fetchedAt ? ` ${fmtStamp(fetchedAt)}` : ""}）— 显示的是上次的数据，可能在刷新后更新。
         </p>
       )}
       {renderData(env.data)}

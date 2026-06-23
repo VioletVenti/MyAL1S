@@ -25,7 +25,7 @@ Errors: unknown method → JSON-RPC `-32601`; unknown tool → `-32602`; parse e
 → `-32700`. A tool that *runs but fails* returns a normal result with
 `isError: true` (clients like pydantic-ai surface this as an exception).
 
-## Tools (read-only data tools; P0 + P1)
+## Tools (read-only data tools; P0 + P1) + the write primitive (P2)
 
 | name | arguments | `data` payload |
 |------|-----------|----------------|
@@ -35,8 +35,26 @@ Errors: unknown method → JSON-RPC `-32601`; unknown tool → `-32602`; parse e
 | `get_announcements` | `{}` | `{ announcements: [{id, course, title, time, descriptions[], attachments[]}] }`, sorted newest-first by `time` (items without a time go last); `attachments` is an array of attachment **names** |
 | `list_course_materials` | `{}` | `{ materials: [{course, ccid, title, kind, attachment_count}] }` — content-tree items **excluding** assignment/announcement kinds (those have their own tools); `ccid` is `course_id:content_id`, `kind` is a **Chinese label** (文档/文件/文件夹/音频/测试/其它 — mapped from `CourseContentKind`, never a Rust Debug name), `attachment_count` is an integer |
 | `list_videos` | `{}` | `{ videos: [{id, course, title, time}] }`, sorted newest-first |
+| `submit_assignment` | `{ assignment_id, file_path, otp? }` | `{ assignment_id, submitted: true }` on success |
 
-`id` (on assignments, announcements, videos) is a **stable** per-item identity — callers use it to star / dedupe / detect "new since last visit". `submit_file` (the only side-effecting pku3b API) is **not** exposed.
+`id` (on assignments, announcements, videos) is a **stable** per-item identity —
+callers use it to star / dedupe / detect "new since last visit".
+
+### `submit_assignment` — the side-effecting execution primitive (P2)
+
+`submit_assignment` is `read_only: false` and wraps `CourseAssignment::submit_file`.
+It takes a **server-local** `file_path` (a path the `pku3b mcp` process can read)
+and a stable `assignment_id` (from `list_assignments`). Because the id is a
+non-decodable hash, the tool re-walks the content tree and matches by id (the
+same walk `list_assignments` uses), then submits the file.
+
+It is the **execution primitive the backend's permission gate dispatches to
+directly** via `tools/call` — it is **NOT exposed to the LLM agent**. The backend
+filters it out of the agent's toolset and offers a local `submit_assignment(
+assignment_id, file_id)` proxy instead, so the model never sees or invents a
+server-local path. The gate resolves the opaque `file_id` → absolute `file_path`
+just-in-time at dispatch. See `docs/architecture.md` (Seam 7) and
+`docs/development.md` ("How to add a write tool").
 
 ## Future tools (P3 — NOT yet implemented)
 
@@ -68,6 +86,11 @@ both holding the same envelope:
 `needs_otp` is **not** an error (`isError: false`) — it is a normal result the
 client should surface as "log in first". Clients add a `{status:"error"}` form
 when a call raises.
+
+> The **MCP tools** themselves only ever emit `ok` / `needs_otp` / `error`. The
+> P2 **write-path statuses** (`pending_approval`, `denied`, `already_decided`)
+> are produced by the backend's PermissionGate (not by `tools/call`); see
+> `docs/architecture.md` → "Write path (P2)".
 
 ## Auth model
 

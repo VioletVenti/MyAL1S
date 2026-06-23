@@ -88,3 +88,18 @@ async def login(body: LoginIn, request: Request) -> dict:
         # Detached: don't block the login response on a 6-source crawl.
         asyncio.create_task(warm_snapshots(request))
     return env
+
+
+@router.get("/session")
+async def session_status(request: Request) -> dict:
+    """Cheap connection check: call the `login` tool with NO otp. Its reuse branch
+    returns `{portal, blackboard}` when both services are warm (the pku3b 1h HTTP
+    cache makes the second+ check fast), else `needs_otp` / `error`. The frontend
+    uses this as a SINGLE gate so an unauthenticated dashboard shows one
+    "未连接，请登录" notice instead of every panel cold-crawling and spinning.
+
+    Returns ``{"connected": bool}`` — both portal and blackboard must be warm."""
+    env = await request.app.state.gateway.call_tool("login", {})
+    data = env.get("data") if isinstance(env.get("data"), dict) else {}
+    connected = bool(env.get("status") == "ok" and data.get("portal") and data.get("blackboard"))
+    return {"connected": connected}

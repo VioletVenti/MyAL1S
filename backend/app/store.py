@@ -49,6 +49,17 @@ from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 SOURCE_ASSIGNMENT = "assignment"
 SOURCE_ANNOUNCEMENT = "announcement"
 
+# P2 write-ops approval states (kept as plain strings — same rationale).
+APPROVAL_PENDING = "pending"
+APPROVAL_DENIED = "denied"
+APPROVAL_EXECUTED = "executed"
+APPROVAL_FAILED = "failed"
+
+# P2 permission-matrix levels. `auto` is reserved for P3 (file-less writes) and
+# is NOT a valid stored level until then; the gate rejects it.
+PERMISSION_DENY = "deny"
+PERMISSION_CONFIRM = "confirm"
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS stars (
@@ -101,6 +112,37 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
+
+-- P2 write-ops: pending + resolved write-operation approvals. The agent path
+-- inserts a `pending` row (the tool returns it; agent.run ends); the user
+-- confirms/rejects in the 待审批 panel. The UI direct path writes an
+-- `executed`/`failed` row directly (implicit confirm) for a unified audit trail.
+-- `args` holds only serializable, non-secret values (a file_id, NEVER a raw
+-- path); `result` holds the execution envelope (ok/needs_otp/error) once run.
+CREATE TABLE IF NOT EXISTS approvals (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT,
+    tool_name       TEXT NOT NULL,
+    group_name      TEXT NOT NULL,
+    args            TEXT NOT NULL,
+    filename        TEXT,
+    summary         TEXT,
+    status          TEXT NOT NULL,
+    result          TEXT,
+    created_at      TEXT NOT NULL,
+    decided_at      TEXT,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+
+-- P2 write-ops: per semantic-group permission level. Absent row => the safe
+-- default 'confirm' (resolved by PermissionGate.level_for, not here). No DEFAULT
+-- is set on the column on purpose — the Store stores the level opaquely and does
+-- NOT know which levels are valid; the gate owns the default.
+CREATE TABLE IF NOT EXISTS permission_matrix (
+    group_name TEXT PRIMARY KEY,
+    level      TEXT NOT NULL
+);
 """
 
 
@@ -117,6 +159,24 @@ def _serialize_model_messages(msgs: list[ModelMessage]) -> str:
 def _deserialize_model_messages(raw: str) -> list[ModelMessage]:
     """Inverse of `_serialize_model_messages`."""
     return ModelMessagesTypeAdapter.validate_json(raw)
+
+
+def _approval_row_to_dict(row: tuple) -> dict:
+    """Map an approvals row (column order matches the SELECTs above) to a dict,
+    parsing the JSON `args`/`result` blobs."""
+    return {
+        "id": row[0],
+        "conversation_id": row[1],
+        "tool_name": row[2],
+        "group_name": row[3],
+        "args": json.loads(row[4]) if row[4] else {},
+        "filename": row[5],
+        "summary": row[6],
+        "status": row[7],
+        "result": json.loads(row[8]) if row[8] else None,
+        "created_at": row[9],
+        "decided_at": row[10],
+    }
 
 
 class Store:
@@ -440,12 +500,117 @@ class Store:
         await self._db.commit()
         return cur.rowcount > 0
 
+    # ---- approvals (P2 write-ops) -----------------------------------------
+    # The Store treats an approval as a row with a status; it does NOT own the
+    # policy (deny/confirm/auto) or the live write dispatch — that is the
+    # PermissionGate's job (Seam 7). Here we only insert / read / transition.
+
+    async def create_approval(
+        self,
+        *,
+        tool_name: str,
+        group_name: str,
+        args: dict[str, Any],
+        filename: str | None = None,
+        summary: str | None = None,
+        conversation_id: str | None = None,
+        status: str = APPROVAL_PENDING,
+        result: dict[str, Any] | None = None,
+        decided_at: str | None = None,
+    ) -> str:
+        """Insert an approval row; return its id. `args` is JSON-encoded and must
+        contain only serializable, non-secret values (a `file_id`, never a raw
+        filesystem path). The default status is `pending` (the agent path); the UI
+        direct path passes `status=executed/failed` + a `result` for the audit row."""
+        aid = uuid.uuid4().hex
+        await self._c.execute(
+            """INSERT INTO approvals
+                 (id, conversation_id, tool_name, group_name, args, filename, summary,
+                  status, result, created_at, decided_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                aid, conversation_id, tool_name, group_name,
+                json.dumps(args, ensure_ascii=False), filename, summary, status,
+                json.dumps(result, ensure_ascii=False) if result is not None else None,
+                _now(), decided_at,
+            ),
+        )
+        await self._db.commit()
+        return aid
+
+    async def get_approval(self, approval_id: str) -> dict | None:
+        cur = await self._c.execute(
+            "SELECT id, conversation_id, tool_name, group_name, args, filename, "
+            "summary, status, result, created_at, decided_at FROM approvals WHERE id = ?",
+            (approval_id,),
+        )
+        row = await cur.fetchone()
+        return _approval_row_to_dict(row) if row is not None else None
+
+    async def list_approvals(self, status: str | None = None) -> list[dict]:
+        sql = (
+            "SELECT id, conversation_id, tool_name, group_name, args, filename, "
+            "summary, status, result, created_at, decided_at FROM approvals"
+        )
+        if status is None:
+            cur = await self._c.execute(sql + " ORDER BY created_at DESC")
+            rows = await cur.fetchall()
+        else:
+            cur = await self._c.execute(
+                sql + " WHERE status = ? ORDER BY created_at DESC", (status,)
+            )
+            rows = await cur.fetchall()
+        return [_approval_row_to_dict(r) for r in rows]
+
+    async def transition_approval(
+        self,
+        approval_id: str,
+        *,
+        from_status: str,
+        to_status: str,
+        result: dict[str, Any] | None = None,
+    ) -> bool:
+        """Atomically move an approval `from_status` → `to_status`, stamping
+        `decided_at` and an optional `result`. Returns whether the transition
+        happened; a concurrent/repeated decide (status already moved) returns
+        False, so the gate can avoid a double dispatch."""
+        cur = await self._c.execute(
+            "UPDATE approvals SET status = ?, result = ?, decided_at = ? "
+            "WHERE id = ? AND status = ?",
+            (
+                to_status,
+                json.dumps(result, ensure_ascii=False) if result is not None else None,
+                _now(), approval_id, from_status,
+            ),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    # ---- permission matrix (P2 write-ops) ---------------------------------
+
+    async def permission_level(self, group_name: str) -> str | None:
+        """The stored level for a group, or None if unset (the gate applies its
+        default). The Store does not validate the level string."""
+        cur = await self._c.execute(
+            "SELECT level FROM permission_matrix WHERE group_name = ?", (group_name,)
+        )
+        row = await cur.fetchone()
+        return row[0] if row is not None else None
+
+    async def set_permission_level(self, group_name: str, level: str) -> None:
+        await self._c.execute(
+            "INSERT INTO permission_matrix (group_name, level) VALUES (?, ?) "
+            "ON CONFLICT(group_name) DO UPDATE SET level = excluded.level",
+            (group_name, level),
+        )
+        await self._db.commit()
+
     # ---- introspection (tests / debugging) --------------------------------
 
     async def counts(self) -> dict[str, int]:
         """Row counts per table — handy for tests and a health glance."""
         out: dict[str, int] = {}
-        for table in ("stars", "custom_items", "seen_ids", "snapshots", "conversations", "messages"):
+        for table in ("stars", "custom_items", "seen_ids", "snapshots", "conversations", "messages", "approvals", "permission_matrix"):
             cur = await self._c.execute(f"SELECT COUNT(*) FROM {table}")
             out[table] = (await cur.fetchone())[0]
         return out

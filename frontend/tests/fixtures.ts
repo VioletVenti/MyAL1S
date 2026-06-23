@@ -43,6 +43,17 @@ export const fixtures: Record<string, unknown> = {
           submitted: false,
           last_attempt: null,
         },
+        // A submitted assignment: exercises the negative case — no 交作业 button,
+        // an 已提交 chip instead (SubmitButton returns early on submitted).
+        {
+          id: "a2",
+          course: "线性代数",
+          title: "作业二",
+          deadline: null,
+          deadline_raw: null,
+          submitted: true,
+          last_attempt: "2026-06-20T10:00:00+08:00",
+        },
       ],
     },
   },
@@ -113,5 +124,16 @@ export const fixtures: Record<string, unknown> = {
   "new-notices": { status: "ok", data: { assignment: [], announcement: [] } },
   models: {
     models: [{ label: "DeepSeek", model: "anthropic:evomap-deepseek-v4-flash" }],
+  },
+  // P2 write-ops
+  // /api/session: the dashboard's connection gate. Default to connected:true so
+  // the existing render tests see the real panels; the session-gate test
+  // overrides this to {connected:false}.
+  session: { connected: true },
+  approvals: { status: "ok", data: { approvals: [] } },
+  permissions: {
+    groups: [{ group: "assignment_submission", level: null }],
+    default: "confirm",
+    valid_levels: ["deny", "confirm"],
   },
 };

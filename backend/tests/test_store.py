@@ -145,3 +145,66 @@ async def test_connect_is_idempotent(store, tmp_path):
     s2 = Store(path)
     await s2.connect()
     await s2.close()
+
+
+# ---- approvals + permission matrix (P2 write-ops) --------------------------
+
+
+async def test_approval_lifecycle_and_args_json(store):
+    aid = await store.create_approval(
+        tool_name="submit_assignment",
+        group_name="assignment_submission",
+        args={"assignment_id": "abc", "file_id": "f1"},
+        filename="hw1.pdf",
+        summary="交作业: 高数 hw1",
+    )
+    got = await store.get_approval(aid)
+    assert got is not None
+    assert got["status"] == "pending"
+    assert got["args"] == {"assignment_id": "abc", "file_id": "f1"}  # JSON round-trip
+    assert got["filename"] == "hw1.pdf"
+    assert got["result"] is None and got["decided_at"] is None
+
+
+async def test_list_approvals_filters_by_status(store):
+    p1 = await store.create_approval(tool_name="t", group_name="g", args={})
+    p2 = await store.create_approval(tool_name="t", group_name="g", args={})
+    await store.transition_approval(p2, from_status="pending", to_status="executed",
+                                    result={"status": "ok"})
+    pending = await store.list_approvals("pending")
+    executed = await store.list_approvals("executed")
+    all_rows = await store.list_approvals()
+    assert {a["id"] for a in pending} == {p1}
+    assert {a["id"] for a in executed} == {p2}
+    assert len(all_rows) == 2
+    # The executed row carries its result envelope.
+    assert executed[0]["result"] == {"status": "ok"}
+    assert executed[0]["decided_at"] is not None
+
+
+async def test_transition_is_status_guarded(store):
+    """A second decide on an already-moved approval is a no-op (no double exec)."""
+    aid = await store.create_approval(tool_name="t", group_name="g", args={})
+    first = await store.transition_approval(aid, from_status="pending", to_status="executed")
+    second = await store.transition_approval(aid, from_status="pending", to_status="executed")
+    assert first is True
+    assert second is False  # status is no longer pending
+
+
+async def test_permission_matrix_defaults_and_overwrites(store):
+    # Absent group → None (the gate applies its 'confirm' default).
+    assert await store.permission_level("assignment_submission") is None
+    await store.set_permission_level("assignment_submission", "deny")
+    assert await store.permission_level("assignment_submission") == "deny"
+    # Upsert overwrites.
+    await store.set_permission_level("assignment_submission", "confirm")
+    assert await store.permission_level("assignment_submission") == "confirm"
+
+
+async def test_counts_includes_p2_tables(store):
+    await store.create_approval(tool_name="t", group_name="g", args={})
+    await store.set_permission_level("g", "confirm")
+    counts = await store.counts()
+    assert counts["approvals"] == 1
+    assert counts["permission_matrix"] == 1
+

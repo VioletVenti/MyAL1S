@@ -26,6 +26,7 @@ import certifi
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.mcp import MCPServerStdio
+from pydantic_ai.toolsets import FilteredToolset, FunctionToolset
 
 from .llm import build_model
 from .settings import Settings
@@ -62,13 +63,19 @@ SYSTEM_PROMPT = """\
   - "needs_otp": 提示用户点击页面顶部的「连接教学网」输入手机令牌 (OTP) 登录一次,
     之后即可正常查询。**不要**自己调用 login 工具, 也不要编造 OTP——OTP 只能由用户提供。
   - "error": 简要说明出错原因, 建议用户重试或先登录。
+  - "pending_approval": 你请求的写操作（如交作业）已发起, 但需要用户在「待审批」面板
+    确认后才会真正执行。请告诉用户去该面板确认; **同一作业在确认结果出来前不要重复请求**。
+  - "denied": 该操作被权限矩阵禁止, 如实告知用户（可在「设置」页调整）。
 - 用中文、简洁地聚焦用户的问题作答; 涉及作业 DDL 时按时间排序并提示紧迫的项。
-- 当前为只读阶段: 你没有交作业 / 选课 / 发帖等写操作能力。
+- 交作业: 调用 submit_assignment 时用用户上传附件得到的 **file_id**（不是文件路径,
+ 你拿不到也不应猜测服务器路径）。提交是否成功以 list_assignments 的结果或「待审批」
+ 面板为准, **不要凭记忆断言已交成功**。
 """
 
 
 class McpGateway:
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         args: list[str] = []
         if settings.pku3b_config:
             args += ["--config", settings.pku3b_config]
@@ -117,6 +124,62 @@ class McpGateway:
     @property
     def agent(self) -> Agent:
         return self._agent
+
+    def attach_write_toolset(self, gate: "PermissionGate") -> None:
+        """Add the agent-facing write tool + hide the path-based MCP primitive.
+
+        Called once from the app lifespan AFTER the gate exists (the gate needs
+        the Store, which is created after the gateway). It rebuilds ``self._agent``
+        with two toolsets:
+
+        - a ``FilteredToolset`` over ``self._server`` that DROPS the raw
+          ``submit_assignment`` primitive (which takes a server-local ``file_path``
+          the LLM must never see or invent);
+        - a ``FunctionToolset`` whose local ``submit_assignment(assignment_id,
+          file_id)`` tool closes over the gate: it creates a pending approval and
+          returns ``pending_approval`` (agent.run then ends — 计划1 two-phase).
+
+        ``self._server`` stays raw so ``call_tool``/``direct_call_tool`` (the
+        deterministic UI/gate dispatch) still reach the primitive — filtering
+        only changes agent *visibility*, never dispatch.
+
+        ``gate`` is typed as a forward-ref string to avoid importing
+        ``permissions`` at module top (which would pull the Store/Uploads graph
+        into the gateway's import for no other reason).
+        """
+        write_ts: FunctionToolset = FunctionToolset()
+
+        @write_ts.tool_plain
+        async def submit_assignment(assignment_id: str, file_id: str) -> dict:
+            """请求提交一次作业（用户在「待审批」面板确认后才真正提交）。只在用户上传了
+            附件并明确要求交作业时调用。
+
+            Args:
+                assignment_id: 目标作业的稳定 id（由 list_assignments 返回的 id 字段）。
+                file_id: 用户已上传附件的 file_id（用户在对话里上传附件后获得；不是文件路径）。
+            """
+            filename = gate.uploads_filename_for(file_id)
+            summary = f"交作业: {filename or file_id}"
+            return await gate.create_approval(
+                tool_name="submit_assignment",
+                group_name="assignment_submission",
+                args={"assignment_id": assignment_id, "file_id": file_id},
+                summary=summary,
+                filename=filename,
+            )
+
+        # Keep references for the structural test (proves the filter, not the
+        # registry, is what hides the primitive).
+        self._filtered = FilteredToolset(
+            wrapped=self._server,
+            filter_func=lambda _ctx, td: td.name != "submit_assignment",
+        )
+        self._write_ts = write_ts
+        self._agent = Agent(
+            build_model(self._settings),
+            system_prompt=SYSTEM_PROMPT,
+            toolsets=[self._filtered, self._write_ts],
+        )
 
     async def call_tool(self, name: str, args: dict[str, Any] | None = None) -> dict:
         """Call an MCP tool directly (no LLM) and return its result envelope.

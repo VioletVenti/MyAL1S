@@ -30,8 +30,18 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
   });
 }
 
+// Isolate the envelope cache across every test: the resilience fallback now
+// serves cached data on failure, so a leaked localStorage entry from a prior
+// test would change what a later test renders (and mask a crash).
+afterEach(() => {
+  localStorage.clear();
+});
+
 describe("<App/> renders without blanking", () => {
   beforeEach(() => {
+    localStorage.clear(); // isolate the envelope cache — a prior test's cached
+    // envelope would otherwise survive and mask a crash / change the rendered
+    // state (the resilience fallback now serves cached data on failure).
     vi.stubGlobal("fetch", stubFetch());
   });
   afterEach(() => {
@@ -150,14 +160,207 @@ describe("Calendar renders the time-axis timetable", () => {
 
     // The 7 day columns + axis appear once loaded.
     await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
-    // 3 class blocks total: period1+period2 on Mon, period1+period2 on Wed
-    // (高等数学), period5 on Tue (线性代数) = 5 blocks.
     const blocks = container.querySelectorAll(".cal-block");
     expect(blocks.length).toBeGreaterThanOrEqual(3);
     // Period 1 (08:00) block sits at the top of its column (top ≈ 0).
     const firstTop = parseFloat((blocks[0] as HTMLElement).style.top);
     expect(firstTop).toBe(0); // 08:00 = DAY_START, 0px
-    // Each block's time label is rendered.
     expect(container.textContent).toContain("8:00");
+  });
+
+  it("auto-dims a 双周 class when the viewed week is 单周 (no manual entry)", async () => {
+    // The portal course-table has NO current-week field. Dimming is driven by a
+    // parity anchor ("本周是单周") pinned once — no 教学周 input. Pin the viewed
+    // week 2026-W26 as 单(odd); a 双周 class must dim, an every-week class not.
+    localStorage.setItem("myal1s.oddAnchorWeek", "2026-W26");
+    localStorage.setItem("myal1s.oddAnchorParity", "odd");
+    const calResp = {
+      status: "ok",
+      data: {
+        week: "2026-W26",
+        items: [],
+        course_table: {
+          status: "ok",
+          data: {
+            success: true,
+            course: [
+              { mon: { courseName: "双周课<br>上课信息：1-15周 双周 二教421 教师：王福正", parity: "", sty: "" } },
+              { tue: { courseName: "每周课<br>上课信息：1-15周 每周 二教205 教师：刘培东", parity: "", sty: "" } },
+            ],
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
+    const { container } = render(<Calendar refreshKey={0} />);
+    await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
+    const blocks = container.querySelectorAll(".cal-block");
+    // 双周 class on a 单(odd) week → dimmed; every-week class → active.
+    const dims = [...blocks].filter((b) => b.classList.contains("inactive"));
+    expect(dims.length).toBe(1);
+    // No manual 教学周 input exists anymore.
+    expect(container.querySelector(".cal-school-week")).toBeNull();
+    expect(container.querySelector('input[type="number"]')).toBeNull();
+  });
+
+  it("flipping the parity pill toggles which 单/双 classes dim", async () => {
+    // Same anchor 2026-W26 = odd → 双周 dims. Click the pill → flips to even →
+    // 双周 stops dimming (now active on an even week). Proves the auto-inference.
+    localStorage.setItem("myal1s.oddAnchorWeek", "2026-W26");
+    localStorage.setItem("myal1s.oddAnchorParity", "odd");
+    const calResp = {
+      status: "ok",
+      data: {
+        week: "2026-W26",
+        items: [],
+        course_table: {
+          status: "ok",
+          data: { success: true, course: [{ mon: { courseName: "双周课<br>上课信息：1-15周 双周 二教421 教师：王福正", parity: "", sty: "" } }] },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", stubFetch({ calendar: calResp }));
+    const { container } = render(<Calendar refreshKey={0} />);
+    await waitFor(() => expect(container.querySelectorAll(".cal-col")).toHaveLength(7));
+    const block = () => container.querySelector(".cal-block") as HTMLElement;
+    await waitFor(() => expect(block().classList.contains("inactive")).toBe(true)); // 双周 on odd week
+    fireEvent.click(screen.getByRole("button", { name: /本周单周/ }));
+    await waitFor(() => expect(block().classList.contains("inactive")).toBe(false)); // now even → 双周 active
+  });
+});
+
+describe("P2 write-ops UI", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", stubFetch());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("a failed fetch falls back to the cached snapshot (stale), not an error", async () => {
+    // Seed a good assignments envelope in localStorage (as a prior successful
+    // load would), then have fetch return an error. The panel must keep showing
+    // the cached data with a stale badge — NOT blank it with "出错了".
+    const cached = {
+      status: "ok",
+      data: {
+        include_finished: false,
+        assignments: [
+          { id: "ax", course: "高等数学", title: "缓存里的作业", deadline: null, deadline_raw: null, submitted: false, last_attempt: null },
+        ],
+      },
+    };
+    localStorage.setItem("myal1s.env.assignments", JSON.stringify(cached));
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({ assignments: { status: "error", message: "请求超时或已取消" } }),
+    );
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    // The cached assignment shows immediately from localStorage; once the failed
+    // fetch resolves, the fallback marks it stale (离线缓存 badge). The harsh
+    // "出错了" error never reaches the DOM.
+    await waitFor(() => expect(screen.getByText("缓存里的作业")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/离线缓存/).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/出错了/)).not.toBeInTheDocument();
+  });
+
+  it("settings view renders the permission matrix (not a blank page)", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /权限矩阵/ })).toBeInTheDocument(),
+    );
+    // The 交作业 group row is present with its level selector (the 禁止 option
+    // is unique to the matrix — the chat model picker has no such option).
+    expect(screen.getByText("交作业")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "禁止" })).toBeInTheDocument();
+  });
+
+  it("when not connected, shows a single 未连接 notice (no spinning panels)", async () => {
+    vi.stubGlobal("fetch", stubFetch({ session: { connected: false } }));
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/未连接教学网/)).toBeInTheDocument());
+    // While gated, no panel headings mount — so no 加载中 spinners either.
+    expect(screen.queryByRole("heading", { name: /待办/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /周历/ })).not.toBeInTheDocument();
+  });
+
+  it("a pending write approval shows an inline 确认执行 / 拒绝 banner in the chat", async () => {
+    const pending = [
+      {
+        id: "ap1",
+        conversation_id: null,
+        tool_name: "submit_assignment",
+        group_name: "assignment_submission",
+        args: { assignment_id: "a1", file_id: "f1" },
+        filename: "hw1.pdf",
+        summary: "交作业: hw1.pdf",
+        status: "pending",
+        result: null,
+        created_at: "2026-06-23T00:00:00+00:00",
+        decided_at: null,
+      },
+    ];
+    vi.stubGlobal("fetch", stubFetch({ approvals: { status: "ok", data: { approvals: pending } } }));
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "确认执行" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
+    expect(screen.getByText(/交作业: hw1\.pdf/)).toBeInTheDocument();
+  });
+
+  it("a confirm whose execution hits needs_otp shows 需先登录 on the banner", async () => {
+    const pending = [
+      {
+        id: "ap1", conversation_id: null, tool_name: "submit_assignment",
+        group_name: "assignment_submission", args: { assignment_id: "a1", file_id: "f1" },
+        filename: "hw1.pdf", summary: "交作业: hw1.pdf", status: "pending",
+        result: null, created_at: "2026-06-23T00:00:00+00:00", decided_at: null,
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        approvals: { status: "ok", data: { approvals: pending } },
+        // The decide POST returns needs_otp (session expired mid-approval); the
+        // banner must surface "需先登录" instead of silently redrawing.
+        "approvals/ap1/decide": { status: "needs_otp", mobile_mask: null, hint: "登录" },
+      }),
+    );
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认执行" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await waitFor(() => expect(screen.getByText(/需先登录/)).toBeInTheDocument());
+  });
+
+  it("the chat shows an always-visible 历史会话 list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        conversations: {
+          conversations: [
+            { id: "c1", title: "旧对话一", created_at: "", updated_at: "" },
+          ],
+        },
+      }),
+    );
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("历史会话（1）")).toBeInTheDocument());
+    expect(screen.getByText("旧对话一")).toBeInTheDocument();
+  });
+
+  it("an unsubmitted assignment shows a 交作业 button; a submitted one shows 已提交", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "交作业" })).toBeInTheDocument(),
+    );
+    // The submitted fixture (作业二) renders an 已提交 chip, not a submit button —
+    // so exactly ONE 交作业 button exists (the unsubmitted 作业一).
+    expect(screen.getAllByRole("button", { name: "交作业" })).toHaveLength(1);
+    expect(screen.getByText("已提交")).toBeInTheDocument();
   });
 });

@@ -31,6 +31,25 @@ def test_health_and_course_table_endpoint(monkeypatch) -> None:
 
 
 @requires_binary
+def test_session_endpoint_returns_connected_bool(monkeypatch) -> None:
+    """GET /api/session is the dashboard's single connection gate. It calls the
+    login tool with no otp and maps the reuse result to {connected: bool}. The
+    value depends on whether a warm session exists (this sandbox may carry one),
+    so we assert the CONTRACT — a boolean, never a crash, never a hang."""
+    monkeypatch.setenv("MYAL1S_PKU3B_BIN", _binary())
+    get_settings.cache_clear()
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        body = client.get("/api/session").json()
+        assert set(body) == {"connected"}
+        assert isinstance(body["connected"], bool)
+
+    get_settings.cache_clear()
+
+
+@requires_binary
 def test_dashboard_persistence_and_composition_endpoints(monkeypatch, tmp_path) -> None:
     """The P1 dashboard endpoints (stars / custom-items / todo / calendar /
     new-notices) round-trip against a real Store + real (spawning) gateway.

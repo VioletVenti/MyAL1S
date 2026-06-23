@@ -35,6 +35,7 @@ class ChatIn(BaseModel):
     message: str
     model: str | None = None  # provider-prefixed string from the picker; None = agent default
     conversation_id: str | None = None  # None = start a new conversation
+    attachment_file_id: str | None = None  # P2: a chat-attached file's id, for the write tool
 
 
 class ChatOut(BaseModel):
@@ -92,9 +93,21 @@ async def chat(body: ChatIn, request: Request) -> ChatOut:
     else:
         conv_id = await store.create_conversation(title=body.message[:48])
 
+    # P2: if the user attached a file this turn, inject its opaque file_id into
+    # the message text so the agent can pass it to submit_assignment. The file_id
+    # (never a path) is the only handle the LLM ever sees.
+    message = body.message
+    if body.attachment_file_id:
+        uploads = request.app.state.uploads
+        fname = uploads.filename_for(body.attachment_file_id) or body.attachment_file_id
+        message = (
+            f"{message}\n\n（已上传附件：{fname}，file_id={body.attachment_file_id}。"
+            "如需交作业请用此 file_id 调用 submit_assignment。）"
+        )
+
     try:
         result = await agent.run(
-            body.message, model=model, message_history=history if history else None
+            message, model=model, message_history=history if history else None
         )
     except Exception as e:
         # Degrade gracefully: the run can fail on an LLM error, a tool error,

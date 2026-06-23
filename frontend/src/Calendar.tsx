@@ -151,6 +151,13 @@ function classesByDay(courseTable: Envelope<unknown>): Record<string, Slot[]> {
 
 // ---- component -----------------------------------------------------------
 
+// 单双周 parity anchor (no manual week entry). The portal payload has no
+// current-week field, so we anchor "this ISO week is 单(odd)" once (first load)
+// and derive every other week's parity by the ISO-week delta. The anchor week
+// string + a parity flag persist so it stays correct as real weeks pass.
+const ODD_ANCHOR_KEY = "myal1s.oddAnchorWeek";
+const ODD_ANCHOR_PARITY = "myal1s.oddAnchorParity";
+
 export default function Calendar({ refreshKey }: { refreshKey: number }) {
   // Initial week from today (UTC-normalized, matching dateKey); memoized so it
   // is stable across renders.
@@ -160,10 +167,38 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
   });
   const [loading, setLoading] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
-  // School-week for 单双周 filtering. User sets the CURRENT teaching week;
-  // the viewed week's school-week is computed by offset. 0 = unset (show all,
-  // with a badge so 单双周 courses are at least labeled).
-  const [schoolWeek, setSchoolWeek] = useState(0);
+  // 单双周 dimming needs only PARITY, not an absolute week number — and the
+  // portal payload carries neither. The user supplied the one fact we can't
+  // infer ("本周是单周"), so we anchor it: the ISO week stored here is ODD (单),
+  // pinned once (first load → this week). Any viewed week's parity follows by
+  // the ISO-week delta (this week odd, ±1 even, ±2 odd …), so dimming stays
+  // correct as real weeks pass with NO input. Segmented-range courses
+  // (e.g. 11-15周) can't be judged without a real number → kept shown (safe).
+  const oddAnchorWeek = useMemo<string>(() => {
+    try {
+      const stored = localStorage.getItem(ODD_ANCHOR_KEY);
+      if (stored) return stored;
+    } catch {
+      /* ignore */
+    }
+    // First load: pin THIS week as the odd (单) anchor — "本周是单周".
+    const n = new Date();
+    const w = isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
+    try { localStorage.setItem(ODD_ANCHOR_KEY, w); } catch { /* ignore */ }
+    return w;
+  }, []);
+  // Anchor parity (default odd). Flippable via a tiny hint toggle if "本周单周"
+  // turns out wrong for this user — no input box.
+  const [anchorOdd, setAnchorOdd] = useState<boolean>(() => {
+    try { return localStorage.getItem(ODD_ANCHOR_PARITY) !== "even"; } catch { return true; }
+  });
+  const flipAnchorParity = useCallback(() => {
+    setAnchorOdd((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(ODD_ANCHOR_PARITY, next ? "odd" : "even"); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   // "现在" rule: current wall-clock minutes, re-ticked every minute so the red
   // "you are here" line stays live across today's column.
   const [nowMin, setNowMin] = useState(() => wallNowMinutes());
@@ -180,56 +215,90 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
-  const setEnv = useCallback((e: typeof env) => {
-    setEnvState(e);
-    if (e && e.status === "ok") {
-      try { localStorage.setItem(`myal1s.env.${cacheKey}`, JSON.stringify(e)); } catch { /* quota */ }
-    }
-  }, [cacheKey]);
+  // Persist a good (ok) envelope to localStorage; on a non-ok/failed fetch we
+  // fall back to the cached envelope (marked stale) instead of overwriting the
+  // timetable with an error — same resilience as useEnvelope. This is what keeps
+  // the calendar's snapshot alive across a backend restart or a slow crawl that
+  // trips the 15s timeout.
+  const applyResult = useCallback(
+    (e: typeof env) => {
+      if (e && e.status === "ok") {
+        setEnvState(e);
+        try { localStorage.setItem(`myal1s.env.${cacheKey}`, JSON.stringify(e)); } catch { /* quota */ }
+        return;
+      }
+      // Transient failure: prefer the cached envelope (marked stale), else the
+      // failure envelope itself (the inner EnvelopeBody renders a soft message).
+      try {
+        const raw = localStorage.getItem(`myal1s.env.${cacheKey}`);
+        const cached = raw ? (JSON.parse(raw) as NonNullable<typeof env>) : null;
+        if (cached && cached.status === "ok") {
+          setEnvState({ ...cached, stale: true } as NonNullable<typeof env>);
+          return;
+        }
+      } catch { /* ignore */ }
+      setEnvState(e);
+    },
+    [cacheKey],
+  );
 
   const reload = useCallback(() => {
     setLoading(true);
-    fetchCalendar(week).then(setEnv).finally(() => setLoading(false)).catch(() => setLoading(false));
-  }, [week, setEnv]);
+    // `.catch` before `.finally` guarantees loading clears even if applyResult
+    // throws or fetchCalendar rejects (an aborted fetch) — otherwise the
+    // calendar's refresh button sticks on 加载中.
+    fetchCalendar(week)
+      .then(applyResult)
+      .catch(() => {
+        /* leave the last env; loading clears in finally */
+      })
+      .finally(() => setLoading(false));
+  }, [week, applyResult]);
 
   useEffect(() => {
     reload();
   }, [reload, refreshKey]);
 
-  const courseTable: Envelope<unknown> = env && env.status === "ok" ? env.data.course_table : { status: "error", message: "未加载" };
+  // When the outer envelope is ok, the inner course_table carries the portal
+  // login status; otherwise (no data yet, or a non-ok we couldn't cache) we pass
+  // a needs_otp-shaped inner envelope so EnvelopeBody shows the soft prompt
+  // instead of the old fabricated "未加载" error.
+  const courseTable: Envelope<unknown> =
+    env && env.status === "ok"
+      ? env.data.course_table
+      : env && (env as { stale?: boolean }).stale
+        ? { status: "needs_otp", mobile_mask: null, hint: "显示的是上次的数据。" }
+        : { status: "needs_otp", mobile_mask: null, hint: "正在获取课表…" };
   const items: TodoItem[] = env && env.status === "ok" ? env.data.items : [];
   const allClasses = useMemo(() => classesByDay(courseTable), [courseTable]);
   const dates = useMemo(() => datesOfWeek(week), [week]);
 
-  // Compute the viewed week's school-week number (for 单双周 filtering).
-  // `schoolWeek` = the CURRENT week's teaching week (user-input). The viewed
-  // week's school-week = schoolWeek + the ISO-week delta from this week.
-  const viewedSchoolWeek = useMemo(() => {
-    if (schoolWeek <= 0) return 0;
-    const n = new Date();
-    const todayWeek = isoWeekOf(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())));
-    const delta = isoWeekDelta(week, todayWeek);
-    return schoolWeek + delta;
-  }, [schoolWeek, week]);
+  // The viewed week's 单/双 parity, derived from the odd-anchor ISO week + the
+  // ISO-week delta. anchorOdd says the anchor week is 单 (odd); flipping the
+  // delta's parity gives every other week. (We deliberately do NOT use an
+  // absolute week number — the portal doesn't provide one, and 单双周 dimming
+  // only needs parity. Segmented-range courses stay shown: see `classes`.)
+  const viewedParity: "odd" | "even" = useMemo(() => {
+    const delta = isoWeekDelta(week, oddAnchorWeek);
+    const anchorIsOdd = anchorOdd;
+    // Even delta from anchor → same parity as anchor; odd delta → flipped.
+    const sameAsAnchor = delta % 2 === 0;
+    return sameAsAnchor === anchorIsOdd ? "odd" : "even";
+  }, [week, oddAnchorWeek, anchorOdd]);
 
-  // Filter classes by 单双周 parity + week range for the viewed school week.
+  // 单双周 dimming: a 单周 class dims on an even viewed week, 双周 on an odd one.
+  // Classes with no 单/双 (every-week, or a bare week-range we can't pin to a
+  // real number) stay shown — never hidden, just not dimmed.
   const classes = useMemo(() => {
-    if (viewedSchoolWeek <= 0) return allClasses; // unset → show all (with badges)
-    const sw = viewedSchoolWeek;
-    const filtered: Record<string, Slot[]> = {};
+    const out: Record<string, { slot: Slot; inactive: boolean }[]> = {};
     for (const [key] of WEEKDAYS) {
-      filtered[key] = (allClasses[key] ?? []).filter((c) => {
-        // Week filter: if the slot has a specific active-weeks set, the viewed
-        // school-week must be in it. Empty = every week (no range in blob).
-        if (c.weeks.length > 0 && !c.weeks.includes(sw)) return false;
-        // Parity: 单周 (odd) only on odd school weeks, 双周 (even) on even
-        if (c.parity === "odd" && sw % 2 === 0) return false;
-        if (c.parity === "even" && sw % 2 === 1) return false;
-        return true;
+      out[key] = (allClasses[key] ?? []).map((slot) => {
+        const inactive = slot.parity !== "all" && slot.parity !== viewedParity;
+        return { slot, inactive };
       });
     }
-    return filtered;
-  }, [allClasses, viewedSchoolWeek]);
+    return out;
+  }, [allClasses, viewedParity]);
 
   // Bucket composer items by their date for the per-day reveal.
   const itemsByDate = useMemo(() => {
@@ -247,19 +316,16 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
       <header>
         <h2>周历 · {week}</h2>
         <span className="panel-actions">
-          <label className="cal-school-week">
-            教学周
-            <input
-              type="number"
-              min={0}
-              max={30}
-              value={schoolWeek || ""}
-              onChange={(e) => setSchoolWeek(Math.max(0, +e.target.value || 0))}
-              placeholder="—"
-              title="设为当前教学周次（启用单双周过滤）"
-            />
-            {viewedSchoolWeek > 0 && <span className="cal-sw-viewed">第{viewedSchoolWeek}周</span>}
-          </label>
+          {/* 本周 parity (auto-inferred from the odd anchor — no manual week
+              entry). A click flips the anchor parity in case the default
+              "本周单周" is wrong for this user; persisted. */}
+          <button
+            className="ghost cal-parity-pill"
+            onClick={flipAnchorParity}
+            title="本周的单双周（自动推断；点击切换奇偶）"
+          >
+            本周{viewedParity === "odd" ? "单周" : "双周"}
+          </button>
           <button onClick={() => setWeek((w) => shiftWeek(w, -1))}>‹ 上一周</button>
           <button onClick={() => setWeek(() => {
             const n = new Date();
@@ -270,6 +336,9 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
         </span>
       </header>
       <div className="panel-body">
+        {env && (env as { stale?: boolean }).stale && (
+          <p className="stale-badge notice">离线缓存 — 显示的是上次的数据，可能在刷新后更新。</p>
+        )}
         <EnvelopeBody
           env={courseTable}
           loading={loading}
@@ -330,7 +399,7 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                     const today = todayUtcKey() === dKey;
                     return (
                       <div key={dKey} className={`cal-col${today ? " today" : ""}`} style={{ height: axisHeight }}>
-                        {cls.map((c) => {
+                        {cls.map(({ slot: c, inactive }) => {
                           const t = PERIOD_TIMES[c.period];
                           if (!t) return null;
                           const top = (t.start - DAY_START_MIN) * PX_PER_MIN;
@@ -338,14 +407,11 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
                           return (
                             <div
                               key={c.period}
-                              className={`cal-block${c.parity !== "all" ? ` parity-${c.parity}` : ""}`}
-                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}${c.parity === "odd" ? " · 单周" : c.parity === "even" ? " · 双周" : ""}`}
+                              className={`cal-block${inactive ? " inactive" : ""}`}
+                              title={`${minToLabel(t.start)}–${minToLabel(t.end)} · ${c.teacher ?? ""}${inactive ? " · 本周不上" : ""}`}
                               style={{ top, height: h }}
                             >
-                              <span className="cal-block-name">
-                                {c.name}
-                                {c.parity !== "all" && <span className="cal-parity-badge">{c.parity === "odd" ? "单" : "双"}</span>}
-                              </span>
+                              <span className="cal-block-name">{c.name}</span>
                               {c.room && <span className="cal-block-room">{c.room}</span>}
                             </div>
                           );
@@ -390,7 +456,10 @@ export default function Calendar({ refreshKey }: { refreshKey: number }) {
             );
           }}
         />
-        <p className="muted cal-hint">默认只显示课表；点击日期可展开当天的星标作业 / 公告 / 自定义待办。</p>
+        <p className="muted cal-hint">
+          默认只显示课表；点击日期可展开当天的星标作业 / 公告 / 自定义待办。
+          不在本周的单/双周课会自动变淡（按「本周单周」自动推断；点右上「本周单/双周」可切换）。
+        </p>
       </div>
     </section>
   );
