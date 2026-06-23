@@ -182,3 +182,18 @@ async def test_unknown_tool_is_rejected(gate):
         args={}, summary="x",
     )
     assert env["status"] == "error"
+
+
+async def test_stray_auto_level_cannot_bypass_confirmation(gate):
+    """Decision 5: a stale/foreign 'auto' row must NOT make a write auto-execute.
+    set_level rejects 'auto'; this simulates a stray row written directly to the
+    DB, then asserts the write still requires confirmation (does not dispatch)."""
+    await gate._store.set_permission_level("assignment_submission", "auto")
+    env = await gate.create_approval(
+        tool_name="submit_assignment", group_name="assignment_submission",
+        args={"assignment_id": "a1", "file_id": _seed_file(gate)}, summary="x",
+    )
+    # level_for collapses 'auto' to 'confirm' -> the write is gated (pending), NOT
+    # dispatched. Nothing reaches the gateway this turn.
+    assert env["status"] == "pending_approval"
+    assert gate._gateway.calls == []

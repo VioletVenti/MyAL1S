@@ -192,11 +192,15 @@ describe("P2 write-ops UI", () => {
     );
   });
 
-  it("an unsubmitted assignment shows a 交作业 button", async () => {
+  it("an unsubmitted assignment shows a 交作业 button; a submitted one shows 已提交", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "目录" }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "交作业" })).toBeInTheDocument(),
     );
+    // The submitted fixture (作业二) renders an 已提交 chip, not a submit button —
+    // so exactly ONE 交作业 button exists (the unsubmitted 作业一).
+    expect(screen.getAllByRole("button", { name: "交作业" })).toHaveLength(1);
+    expect(screen.getByText("已提交")).toBeInTheDocument();
   });
 });

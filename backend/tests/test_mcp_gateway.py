@@ -95,8 +95,15 @@ async def test_agent_toolset_hides_submit_primitive(settings: Settings) -> None:
         ff = gateway._filtered.filter_func
         assert ff(None, _Td("submit_assignment")) is False
         assert ff(None, _Td("list_assignments")) is True
-        # 3. The local write toolset exposes the file_id proxy under the same name.
+        # 3. The local write toolset exposes the file_id proxy under the same name,
+        #    and its parameters are {assignment_id, file_id} — NEVER file_path. This
+        #    is the security-critical half of "hiding the primitive": the LLM must
+        #    not see any tool parameter that names a server-local path.
         assert "submit_assignment" in gateway._write_ts.tools
+        schema = gateway._write_ts.tools["submit_assignment"].tool_def.parameters_json_schema
+        param_names = set(schema.get("properties", {}).keys())
+        assert param_names == {"assignment_id", "file_id"}
+        assert "file_path" not in param_names and "path" not in param_names
         # 4. gateway.call_tool still reaches the primitive directly — a missing
         #    file fails BEFORE any login (deterministic, no network needed).
         env = await gateway.call_tool(

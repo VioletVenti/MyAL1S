@@ -79,9 +79,15 @@ class PermissionGate:
 
     async def level_for(self, group_name: str) -> str:
         """The effective level for a group: the stored level, or ``confirm`` (the
-        safe default) when unset."""
+        safe default) when unset. Only ``deny``/``confirm`` are valid stored levels
+        in P2 (``set_level`` rejects ``auto``); a stale/foreign row holding anything
+        else collapses to ``confirm`` — which still GATES the write (requires
+        approval), so decision 5's guarantee holds: an ``auto``-tagged write never
+        auto-executes / bypasses the matrix. P3 promotes ``auto`` to a real level."""
         stored = await self._store.permission_level(group_name)
-        return stored or PERMISSION_CONFIRM
+        if stored in _VALID_LEVELS:
+            return stored
+        return PERMISSION_CONFIRM
 
     async def set_level(self, group_name: str, level: str) -> None:
         if group_name not in KNOWN_GROUPS:

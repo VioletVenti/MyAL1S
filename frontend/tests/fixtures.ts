@@ -43,6 +43,17 @@ export const fixtures: Record<string, unknown> = {
           submitted: false,
           last_attempt: null,
         },
+        // A submitted assignment: exercises the negative case — no 交作业 button,
+        // an 已提交 chip instead (SubmitButton returns early on submitted).
+        {
+          id: "a2",
+          course: "线性代数",
+          title: "作业二",
+          deadline: null,
+          deadline_raw: null,
+          submitted: true,
+          last_attempt: "2026-06-20T10:00:00+08:00",
+        },
       ],
     },
   },

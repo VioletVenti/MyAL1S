@@ -136,11 +136,12 @@ CREATE TABLE IF NOT EXISTS approvals (
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
 
 -- P2 write-ops: per semantic-group permission level. Absent row => the safe
--- default 'confirm' (resolved by PermissionGate.level_for, not here). The Store
--- stores the level opaquely; it does NOT know which levels are valid.
+-- default 'confirm' (resolved by PermissionGate.level_for, not here). No DEFAULT
+-- is set on the column on purpose — the Store stores the level opaquely and does
+-- NOT know which levels are valid; the gate owns the default.
 CREATE TABLE IF NOT EXISTS permission_matrix (
     group_name TEXT PRIMARY KEY,
-    level      TEXT NOT NULL DEFAULT 'confirm'
+    level      TEXT NOT NULL
 );
 """
 

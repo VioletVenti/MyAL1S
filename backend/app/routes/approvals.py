@@ -16,7 +16,12 @@ router = APIRouter(prefix="/api", tags=["approvals"])
 
 @router.get("/approvals")
 async def list_approvals(request: Request, status: str | None = None) -> dict:
-    return {"approvals": await request.app.state.store.list_approvals(status)}
+    # Wrap in the {status, data} envelope — the frontend consumes this via
+    # getEnvelope + EnvelopeBody, which dereferences env.data (a bare
+    # {"approvals": [...]} would throw inside renderData and blank the panel —
+    # the bug class the render tests guard). All GET endpoints the dashboard
+    # renders through EnvelopeBody follow this shape.
+    return {"status": "ok", "data": {"approvals": await request.app.state.store.list_approvals(status)}}
 
 
 class DecideIn(BaseModel):
