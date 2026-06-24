@@ -168,11 +168,44 @@ class McpGateway:
                 filename=filename,
             )
 
+        @write_ts.tool_plain
+        async def treehole_post(text: str, tag: str = "") -> dict:
+            """在树洞发布一条新帖。需用户确认（除非已设为 auto）。
+            只在用户明确要求「帮我发个帖子」时调用。
+
+            Args:
+                text: 帖子正文。
+                tag: 可选标签。
+            """
+            tag_val = tag.strip() or None
+            return await gate.create_approval(
+                tool_name="treehole_post",
+                group_name="treehole_post",
+                args={"text": text, "tag": tag_val} if tag_val else {"text": text},
+                summary=f"树洞发帖: {text[:40]}",
+            )
+
+        @write_ts.tool_plain
+        async def treehole_comment(pid: int, text: str) -> dict:
+            """回复树洞某帖的楼层。需用户确认（除非已设为 auto）。
+
+            Args:
+                pid: 目标帖子 pid。
+                text: 回复正文。
+            """
+            return await gate.create_approval(
+                tool_name="treehole_comment",
+                group_name="treehole_comment",
+                args={"pid": pid, "text": text},
+                summary=f"树洞回复 pid={pid}: {text[:40]}",
+            )
+
         # Keep references for the structural test (proves the filter, not the
-        # registry, is what hides the primitive).
+        # registry, is what hides the primitives).
+        _hidden = {"submit_assignment", "treehole_post", "treehole_comment"}
         self._filtered = FilteredToolset(
             wrapped=self._server,
-            filter_func=lambda _ctx, td: td.name != "submit_assignment",
+            filter_func=lambda _ctx, td: td.name not in _hidden,
         )
         self._write_ts = write_ts
         self._agent = Agent(

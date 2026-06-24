@@ -52,11 +52,16 @@ async def test_level_defaults_to_confirm_and_sets(gate):
     assert await gate.level_for("assignment_submission") == "deny"
 
 
-async def test_set_level_rejects_auto_and_unknown_group(gate):
-    with pytest.raises(ValueError):  # auto reserved for P3
-        await gate.set_level("assignment_submission", "auto")
-    with pytest.raises(ValueError):  # unknown group
+async def test_set_level_accepts_auto_rejects_bogus(gate):
+    # P3: auto is now valid.
+    await gate.set_level("assignment_submission", "auto")
+    assert await gate.level_for("assignment_submission") == "auto"
+    # Unknown group still rejected.
+    with pytest.raises(ValueError):
         await gate.set_level("bogus_group", "confirm")
+    # Bogus level still rejected.
+    with pytest.raises(ValueError):
+        await gate.set_level("assignment_submission", "bogus_level")
 
 
 # ---- agent path: create_approval -------------------------------------------
@@ -184,16 +189,29 @@ async def test_unknown_tool_is_rejected(gate):
     assert env["status"] == "error"
 
 
-async def test_stray_auto_level_cannot_bypass_confirmation(gate):
-    """Decision 5: a stale/foreign 'auto' row must NOT make a write auto-execute.
-    set_level rejects 'auto'; this simulates a stray row written directly to the
-    DB, then asserts the write still requires confirmation (does not dispatch)."""
-    await gate._store.set_permission_level("assignment_submission", "auto")
+async def test_auto_level_dispatches_immediately(gate):
+    """P3: `auto` is now a real level. A group set to auto → create_approval
+    dispatches IMMEDIATELY (no pending), writes an executed/failed audit row,
+    returns the real result envelope."""
+    await gate.set_level("assignment_submission", "auto")
+    file_id = _seed_file(gate)
     env = await gate.create_approval(
         tool_name="submit_assignment", group_name="assignment_submission",
-        args={"assignment_id": "a1", "file_id": _seed_file(gate)}, summary="x",
+        args={"assignment_id": "a1", "file_id": file_id}, summary="x",
     )
-    # level_for collapses 'auto' to 'confirm' -> the write is gated (pending), NOT
-    # dispatched. Nothing reaches the gateway this turn.
-    assert env["status"] == "pending_approval"
-    assert gate._gateway.calls == []
+    assert env["status"] == "ok"  # dispatched directly
+    assert len(gate._gateway.calls) == 1  # single dispatch, no pending round
+    assert (await gate._store.list_approvals("executed"))
+
+
+async def test_unknown_stored_level_collapses_to_confirm(gate):
+    """A stale/foreign level NOT in {deny, confirm, auto} collapses to confirm
+    (still gates the write). Guards against DB tampering."""
+    await gate._store.set_permission_level("assignment_submission", "bogus_level")
+    file_id = _seed_file(gate)
+    env = await gate.create_approval(
+        tool_name="submit_assignment", group_name="assignment_submission",
+        args={"assignment_id": "a1", "file_id": file_id}, summary="x",
+    )
+    assert env["status"] == "pending_approval"  # confirm gate
+    assert gate._gateway.calls == []  # not dispatched

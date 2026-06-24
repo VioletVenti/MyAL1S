@@ -91,9 +91,11 @@ async def test_agent_toolset_hides_submit_primitive(settings: Settings) -> None:
         # 1. The raw MCP server still lists the path primitive.
         raw = {t.name for t in await gateway._server.list_tools()}
         assert "submit_assignment" in raw
-        # 2. The agent's filtered server view DROPS it; read tools survive.
+        # 2. The agent's filtered server view DROPS all write primitives; read tools survive.
         ff = gateway._filtered.filter_func
         assert ff(None, _Td("submit_assignment")) is False
+        assert ff(None, _Td("treehole_post")) is False
+        assert ff(None, _Td("treehole_comment")) is False
         assert ff(None, _Td("list_assignments")) is True
         # 3. The local write toolset exposes the file_id proxy under the same name,
         #    and its parameters are {assignment_id, file_id} — NEVER file_path. This
