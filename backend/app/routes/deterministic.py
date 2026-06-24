@@ -91,11 +91,21 @@ async def videos(request: Request) -> dict:
 
 
 @router.get("/treehole")
-async def treehole(request: Request, page: int = 1, limit: int = 20) -> dict:
-    """北大树洞首页帖子流 (read-only, no LLM). Calls the treehole_list MCP tool
-    directly. Note: treehole has its own auth (IAAA OTP → JWT) + a one-time令牌验证
-    gate (code=40002); on needs_otp the envelope surfaces it so the frontend can
-    prompt for login. Treehole is NOT cached (per-request JWT session)."""
-    return await _gateway(request).call_tool(
-        "treehole_list", {"page": page, "limit": limit}
+async def treehole(request: Request) -> dict:
+    """北大树洞通知（read-only, no LLM）—— 轻量替代全量爬取。返回关注帖子的未读
+    计数 + 最近通知消息 + 收藏夹。需要树洞自己的认证（IAAA OTP → JWT + 令牌验证门）。"""
+    gw = _gateway(request)
+    # 并行取未读数 + 通知列表。
+    import asyncio
+    unread, messages = await asyncio.gather(
+        gw.call_tool("treehole_unread", {"message_type": "int_msg"}),
+        gw.call_tool("treehole_messages", {"message_type": "int_msg", "page": 1}),
+        return_exceptions=True,
     )
+    # 任一返回 needs_otp / needs_treehole_token → 透传该状态。
+    for r in (unread, messages):
+        if isinstance(r, dict) and r.get("status") in ("needs_otp", "needs_treehole_token"):
+            return r
+    count = unread.get("data", {}).get("count", 0) if isinstance(unread, dict) else 0
+    msgs = messages.get("data", {}).get("messages", []) if isinstance(messages, dict) else []
+    return {"status": "ok", "data": {"unread": count, "messages": msgs}}

@@ -413,20 +413,26 @@ export interface DeanUpdate {
   summary: string | null;
 }
 
-/** 树洞帖子 (MCP: treehole_list)。字段来自 spike 实测的真实响应。 */
+/** 树洞帖子 (MCP: treehole_list/search)。字段来自 spike 实测。 */
 export interface TreeholePost {
   pid: number;
   text: string;
-  time: string | null; // RFC3339 (由 ts 转换)
+  time: string | null;
   timestamp: number;
   reply: number;
   likenum: number;
   tag: string | null;
 }
 
-/** 树洞首页帖子流（确定性，不过 LLM）。 */
-export const fetchTreehole = (page = 1, limit = 20) =>
-  getEnvelope<{ holes: TreeholePost[] }>(`/treehole?page=${page}&limit=${limit}`);
+/** 树洞通知（关注帖子更新）。轻量替代全量爬取。 */
+export interface TreeholeNotice {
+  unread: number;
+  messages: { description: string; pid: number | null; time: string | null }[];
+}
+
+/** 树洞通知面板数据（确定性，不过 LLM）。 */
+export const fetchTreehole = () =>
+  getEnvelope<TreeholeNotice>("/treehole");
 
 /** Future backend endpoint: /api/docs/search (personal document library). */
 export interface DocResult {

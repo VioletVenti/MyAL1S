@@ -275,36 +275,38 @@ function GradeList({ items }: { items: Grade[] }) {
   );
 }
 
-/** 树洞帖子面板 (P3)。列出首页帖子流（pid/正文/时间/回复/赞/标签），分页。
- *  令牌验证门（首次）→ needs_otp，提示用户在前端登录。 */
+/** 树洞通知面板 (P3) —— 轻量替代全量爬取。显示关注的帖子未读数 + 最近通知。
+ *  搜索交给 agent（treehole_search 工具）。 */
 function TreeholePanel({ refreshKey }: { refreshKey: number }) {
-  const [page, setPage] = useState(1);
-  const { env, loading, reload } = useEnvelope(() => fetchTreehole(page, 15), {});
+  const { env, loading, reload } = useEnvelope(() => fetchTreehole(), {});
   useRefresh(refreshKey, reload);
-  // 翻页时重取（cacheKey 关闭，每次 page 变都新取）。
-  useEffect(() => { reload(); }, [page, reload]);
   return (
-    <Panel title="北大树洞" loading={loading} onReload={reload} category="notice"
-      actions={<Pager page={page} pages={50} onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />}>
+    <Panel title="北大树洞" loading={loading} onReload={reload} category="notice">
       <EnvelopeBody
         env={env}
         loading={loading}
-        renderData={(d) =>
-          d.holes.length === 0 ? (
-            <p className="muted">没有帖子</p>
-          ) : (
-            <ul className="list treehole">
-              {d.holes.map((h) => (
-                <li key={h.pid}>
-                  <span className="title">{h.text}</span>
-                  {h.tag && <span className="kind-chip">{h.tag}</span>}
-                  <span className="ddl">{fmtDate(h.time, true)}</span>
-                  <span className="muted">回复 {h.reply} · ♥ {h.likenum}</span>
-                </li>
-              ))}
-            </ul>
-          )
-        }
+        renderData={(d) => (
+          <>
+            {d.unread > 0 && (
+              <p className="notice">
+                🔔 {d.unread} 条未读通知（关注的帖子有新动态）
+              </p>
+            )}
+            {d.messages.length === 0 ? (
+              <p className="muted">没有新通知。用对话问助手「帮我搜树洞里关于…」来查找帖子。</p>
+            ) : (
+              <ul className="list treehole">
+                {d.messages.map((m, i) => (
+                  <li key={i}>
+                    <span className="title">{m.description}</span>
+                    {m.pid && <span className="muted"> · pid:{m.pid}</span>}
+                    {m.time && <span className="ddl">{fmtDate(m.time, false)}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       />
     </Panel>
   );
