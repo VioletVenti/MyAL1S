@@ -75,9 +75,17 @@ protocol.
 | `treehole_my_list` | `{ page?, otp? }` | `{ holes: [...] }` |
 | `treehole_history` | `{ page?, otp? }` | `{ holes: [...] }` |
 | `treehole_attention` | `{ page?, otp? }` | `{ holes: [...] }` (关注的帖子) |
+| `treehole_search` | `{ keyword: string, page?, otp? }` | `{ holes: [...] }` (关键词搜索) |
+| `treehole_messages` | `{ message_type?, page?, otp? }` | `{ messages: [{description, pid, time}] }` |
+| `treehole_unread` | `{ message_type?, otp? }` | `{ count: int }` |
+| `treehole_post` | `{ text: string, tag?, otp? }` | `{ pid: int, posted: true }` — **写** (read_only:false, 经 PermissionGate) |
+| `treehole_comment` | `{ pid: int, text: string, otp? }` | `{ cid: int, posted: true }` — **写** (read_only:false, 经 PermissionGate) |
 
-All six are read-only. Write tools (发帖/回复) + the `auto` matrix level land in
-Increment B (P2's reserved slot). `pid` is a stable per-post integer identity.
+The 9 read tools are `read_only: true`. `treehole_post`/`treehole_comment` are
+`read_only: false` — side-effecting execution primitives, gated by the backend
+PermissionGate (confirm = pending approval; auto = direct dispatch). `pid` is a
+stable per-post integer identity. `needs_treehole_token` (code=40002) is a
+distinct gate — the令牌验证, not IAAA OTP login.
 
 ### 教务通知 — NOT yet implemented
 

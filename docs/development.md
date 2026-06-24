@@ -106,7 +106,7 @@ transport and the agent are generic over it.
 
 ## How to add a write tool  ← P2+ (side-effecting tools)
 
-A write tool (交作业 today; 选课 / 树洞发帖 in P3) touches three layers. The pattern
+A write tool (交作业 + 树洞发帖/回复) touches three layers. The pattern
 keeps the path-based execution primitive off the agent and routes both the UI and
 agent channels through one gate.
 
@@ -122,7 +122,7 @@ agent channels through one gate.
    - Add a branch to `_dispatch` that maps the stored args (which carry a
      `file_id`, **never** a raw path) to the concrete MCP call, resolving
      `file_id` → absolute path via the `Uploads` helper just-in-time.
-   - Add the semantic group to `KNOWN_GROUPS` (e.g. `treehole_post`).
+   - Add the semantic group to `KNOWN_GROUPS` (e.g. `treehole_post`, `treehole_comment`).
 
 3. **The agent proxy + hiding (`backend/app/mcp_gateway.py`).** The agent must
    NOT see the path-based primitive. In `attach_write_toolset`, add a local
@@ -134,7 +134,9 @@ The matrix, the two-phase approval lifecycle, the UI implicit-confirm audit row,
 and the decide lock are all generic — a new write tool inherits them by joining a
 semantic group. No route changes unless the tool needs a new entry point (the UI
 direct path); the agent path needs no new route (`/approvals/:id/decide` is
-generic). `auto` level support is reserved for P3 (file-less writes); the gate
+generic). `auto` level is now live (P3): a group set to `auto` dispatches
+   immediately without a pending approval — ideal for file-less writes (treehole
+   posting). Default stays `confirm`. The gate
 rejects it for now.
 
 ## Store / Composer (P1)
