@@ -318,7 +318,7 @@ function groupLabel(group: string): string {
   return ({ assignment_submission: "交作业" } as Record<string, string>)[group] ?? group;
 }
 
-/** 权限矩阵设置 (P2). Per semantic group: confirm (default) / deny. auto is P3. */
+/** 权限矩阵设置 (P2/P3). Per semantic group: confirm (default) / deny / auto. */
 export function SettingsPanel({ refreshKey }: { refreshKey: number }) {
   const [perms, setPerms] = useState<Permissions | null>(null);
   const [loading, setLoading] = useState(true);
@@ -352,8 +352,7 @@ export function SettingsPanel({ refreshKey }: { refreshKey: number }) {
       ) : (
         <div className="matrix">
           <p className="muted">
-            每个写操作可设为「需确认」（默认，每次执行前由你在「待审批」确认）或「禁止」。
-            「自动」留待 P3（用于文件无关的写，如发帖）。
+            每个写操作可设为「需确认」（默认）、「禁止」、或「自动」（agent 直接执行，无需确认）。
           </p>
           <table className="matrix-table">
             <thead>
@@ -376,8 +375,8 @@ export function SettingsPanel({ refreshKey }: { refreshKey: number }) {
                       >
                         <option value="confirm">需确认（默认）</option>
                         <option value="deny">禁止</option>
-                        <option value="auto" disabled>
-                          自动（P3）
+                        <option value="auto">
+                          自动（agent 直接执行，无需确认）
                         </option>
                       </select>
                     </td>

@@ -377,17 +377,6 @@ export interface DeanUpdate {
   summary: string | null;
 }
 
-/** 树洞帖子 (MCP: treehole_list/search)。字段来自 spike 实测。 */
-export interface TreeholePost {
-  pid: number;
-  text: string;
-  time: string | null;
-  timestamp: number;
-  reply: number;
-  likenum: number;
-  tag: string | null;
-}
-
 /** 树洞通知（关注帖子更新）。轻量替代全量爬取。 */
 export interface TreeholeNotice {
   unread: number;
@@ -433,15 +422,3 @@ export async function login(otp: string): Promise<Envelope<LoginResult>> {
   }
 }
 
-/** Cheap single connection check — the LoginBar's "am I logged in?" signal. No
- *  timeout; on any failure (network / HTTP) it reports not-connected. Does NOT
- *  gate the dashboard (panels always render, snapshot-first). */
-export async function fetchSession(): Promise<{ connected: boolean }> {
-  try {
-    const res = await fetch("/api/session");
-    if (!res.ok) return { connected: false };
-    return (await res.json()) as { connected: boolean };
-  } catch {
-    return { connected: false }; // network failure → treat as not connected
-  }
-}

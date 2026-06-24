@@ -20,7 +20,7 @@ async def get_permissions(request: Request) -> dict:
         {"group": g, "level": await store.permission_level(g)}
         for g in request.app.state.gate.known_groups()
     ]
-    return {"groups": groups, "default": "confirm", "valid_levels": ["deny", "confirm"]}
+    return {"groups": groups, "default": "confirm", "valid_levels": ["deny", "confirm", "auto"]}
 
 
 class LevelIn(BaseModel):
