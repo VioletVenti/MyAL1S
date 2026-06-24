@@ -278,7 +278,7 @@ function GradeList({ items }: { items: Grade[] }) {
 /** 树洞通知面板 (P3) —— 轻量替代全量爬取。显示关注的帖子未读数 + 最近通知。
  *  搜索交给 agent（treehole_search 工具）。 */
 function TreeholePanel({ refreshKey }: { refreshKey: number }) {
-  const { env, loading, reload } = useEnvelope(() => fetchTreehole(), {});
+  const { env, loading, reload } = useEnvelope(() => fetchTreehole(), { cacheKey: "treehole" });
   useRefresh(refreshKey, reload);
   return (
     <Panel title="北大树洞" loading={loading} onReload={reload} category="notice">
@@ -405,18 +405,12 @@ export default function Dashboard({
   view,
   refreshKey,
   bump,
-  connected,
 }: {
   view: DashboardView;
   refreshKey: number;
   bump: () => void;
-  connected: boolean | null;
 }): ReactNode {
   const [selected, setSelected] = useState("assignments");
-
-  // 不再用连接闸替换整个仪表盘 —— 面板始终渲染（有 localStorage 快照就即时显示），
-  // 连接状态只体现在刷新按钮（"加载中"）。这样快照永远在最前，不会被"正在连接"遮住。
-  void connected;
 
   if (view === "main") {
     return (

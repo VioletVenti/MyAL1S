@@ -302,7 +302,8 @@ export interface Permissions {
   valid_levels: string[];
 }
 
-/** Upload a chat attachment. Multipart → steps outside postJSON. 15s timeout.
+/** Upload a chat attachment. Multipart → steps outside postJSON. No timeout
+ *  (uploads are user-initiated and wait for completion).
  * Returns an opaque file_id the agent passes to submit_assignment. */
 export async function uploadAttachment(file: File): Promise<UploadResult> {
   const form = new FormData();
@@ -432,17 +433,15 @@ export async function login(otp: string): Promise<Envelope<LoginResult>> {
   }
 }
 
-/** Cheap single connection check — the dashboard's "am I logged in?" gate. Used
- *  to show one "未连接，请登录" notice instead of every panel cold-crawling. Has a
- *  timeout so a hung backend can't leave the gate spinning on "检查连接…" — on
- *  any failure (including an abort) it reports not-connected, so the notice
- *  shows instead of a perpetual 加载中. */
+/** Cheap single connection check — the LoginBar's "am I logged in?" signal. No
+ *  timeout; on any failure (network / HTTP) it reports not-connected. Does NOT
+ *  gate the dashboard (panels always render, snapshot-first). */
 export async function fetchSession(): Promise<{ connected: boolean }> {
   try {
     const res = await fetch("/api/session");
     if (!res.ok) return { connected: false };
     return (await res.json()) as { connected: boolean };
   } catch {
-    return { connected: false }; // timeout / network → treat as not connected
+    return { connected: false }; // network failure → treat as not connected
   }
 }

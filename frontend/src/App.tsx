@@ -1,16 +1,14 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import ChatBox from "./ChatBox";
 import Dashboard, { type DashboardView, SettingsPanel } from "./Dashboard";
-import { fetchSession, login } from "./api";
+import { login } from "./api";
 import { StarProvider } from "./stars";
 
 /** One-time login: enter the OTP once at startup; the session is then reused. */
 function LoginBar({
   onConnected,
-  onLoginAttempt,
 }: {
   onConnected: () => void;
-  onLoginAttempt: () => void;
 }) {
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,10 +20,6 @@ function LoginBar({
     if (!code || busy) return;
     setBusy(true);
     setMsg(null);
-    // Optimistically flip the gate to the "connecting" transition state so the
-    // dashboard shows "正在连接教学网…" (not "未连接") while the OTP is processed
-    // and the session is re-checked.
-    onLoginAttempt();
     const env = await login(code);
     setBusy(false);
     setOtp("");
@@ -72,34 +66,17 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [view, setView] = useState<DashboardView>("main");
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
-  // Session gate: null = checking, false = not connected, true = connected.
-  // When not connected the dashboard shows ONE "请登录" notice instead of every
-  // panel cold-crawling pku3b and spinning (the 加载中 complaint).
-  const [connected, setConnected] = useState<boolean | null>(null);
-
-  const checkSession = useCallback(async () => {
-    setConnected((await fetchSession()).connected);
-  }, []);
-
-  useEffect(() => {
-    void checkSession();
-  }, [checkSession]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const id = setInterval(bump, 60_000); // pku3b caches 1h, so repeated calls are cheap
+    const id = setInterval(bump, 60_000);
     return () => clearInterval(id);
   }, [autoRefresh, bump]);
 
-  // After a successful login, re-check the session so the dashboard can mount.
+  // After a successful login, bump the dashboard to re-fetch panels.
   const onConnected = useCallback(() => {
     bump();
-    void checkSession();
-  }, [bump, checkSession]);
-
-  // While an OTP is being submitted, show the "connecting" transition (not the
-  // "未连接" notice) — `connected` is re-resolved by checkSession in onConnected.
-  const onLoginAttempt = useCallback(() => setConnected(null), []);
+  }, [bump]);
 
   return (
     <StarProvider onChange={bump}>
@@ -142,12 +119,12 @@ export default function App() {
             </button>
           </span>
         </header>
-        <LoginBar onConnected={onConnected} onLoginAttempt={onLoginAttempt} />
+        <LoginBar onConnected={onConnected} />
         <main className="layout">
           {view === "settings" ? (
             <SettingsPanel refreshKey={refreshKey} />
           ) : (
-            <Dashboard view={view} refreshKey={refreshKey} bump={bump} connected={connected} />
+            <Dashboard view={view} refreshKey={refreshKey} bump={bump} />
           )}
           <aside className="sidebar">
             <h2>对话</h2>
