@@ -278,13 +278,14 @@ describe("P2 write-ops UI", () => {
     expect(screen.getByRole("option", { name: "禁止" })).toBeInTheDocument();
   });
 
-  it("when not connected, shows a single 未连接 notice (no spinning panels)", async () => {
+  it("when not connected, still mounts the dashboard panels (snapshot-first, no gate)", async () => {
     vi.stubGlobal("fetch", stubFetch({ session: { connected: false } }));
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/未连接教学网/)).toBeInTheDocument());
-    // While gated, no panel headings mount — so no 加载中 spinners either.
-    expect(screen.queryByRole("heading", { name: /待办/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /周历/ })).not.toBeInTheDocument();
+    // Panels always render — connection status is NOT a full-page gate anymore.
+    await waitFor(() => expect(screen.getByRole("heading", { name: /待办/ })).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: /周历/ })).toBeInTheDocument();
+    // No "未连接教学网" panel replacement.
+    expect(screen.queryByText(/未连接教学网/)).not.toBeInTheDocument();
   });
 
   it("a pending write approval shows an inline 确认执行 / 拒绝 banner in the chat", async () => {
