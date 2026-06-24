@@ -15,13 +15,13 @@ import {
   type Material,
   type MemoryEntry,
   type Permissions,
-  type TreeholePost,
   type Video,
   fetchAnnouncements,
   fetchAssignments,
   fetchGrades,
   fetchMaterials,
   fetchPermissions,
+  fetchTreehole,
   fetchVideos,
   setPermission,
   submitAssignment,
@@ -275,6 +275,41 @@ function GradeList({ items }: { items: Grade[] }) {
   );
 }
 
+/** 树洞帖子面板 (P3)。列出首页帖子流（pid/正文/时间/回复/赞/标签），分页。
+ *  令牌验证门（首次）→ needs_otp，提示用户在前端登录。 */
+function TreeholePanel({ refreshKey }: { refreshKey: number }) {
+  const [page, setPage] = useState(1);
+  const { env, loading, reload } = useEnvelope(() => fetchTreehole(page, 15), {});
+  useRefresh(refreshKey, reload);
+  // 翻页时重取（cacheKey 关闭，每次 page 变都新取）。
+  useEffect(() => { reload(); }, [page, reload]);
+  return (
+    <Panel title="北大树洞" loading={loading} onReload={reload} category="notice"
+      actions={<Pager page={page} pages={50} onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />}>
+      <EnvelopeBody
+        env={env}
+        loading={loading}
+        renderData={(d) =>
+          d.holes.length === 0 ? (
+            <p className="muted">没有帖子</p>
+          ) : (
+            <ul className="list treehole">
+              {d.holes.map((h) => (
+                <li key={h.pid}>
+                  <span className="title">{h.text}</span>
+                  {h.tag && <span className="kind-chip">{h.tag}</span>}
+                  <span className="ddl">{fmtDate(h.time, true)}</span>
+                  <span className="muted">回复 {h.reply} · ♥ {h.likenum}</span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      />
+    </Panel>
+  );
+}
+
 export type DashboardView = "main" | "directory" | "settings";
 
 function groupLabel(group: string): string {
@@ -430,10 +465,10 @@ export default function Dashboard({
     { id: "materials", label: "课程材料", cat: "material", body: <MaterialsPanel refreshKey={refreshKey} /> },
     { id: "videos", label: "课程回放", cat: "video", body: <VideosPanel refreshKey={refreshKey} /> },
     { id: "grades", label: "成绩", cat: "grade", body: <GradesPanel refreshKey={refreshKey} /> },
+    { id: "treehole", label: "北大树洞", cat: "notice", body: <TreeholePanel refreshKey={refreshKey} /> },
   ];
   const deferred: DirModule[] = [
     { id: "dean", label: "教务通知", cat: "notice", body: <DeferredPanel<DeanUpdate> title="教务通知" futureTool="MCP: get_dean_updates" fields={["id", "title", "time", "category", "url", "summary"]} /> },
-    { id: "treehole", label: "北大树洞", cat: "notice", body: <DeferredPanel<TreeholePost> title="北大树洞" futureTool="MCP: list_treehole_posts / get_treehole_post" fields={["id", "title", "body", "time", "tags", "reply_count"]} /> },
     { id: "docs", label: "文档库", cat: "material", body: <DeferredPanel<DocResult> title="文档库" futureTool="GET /api/docs/search" fields={["id", "title", "course", "kind", "snippet", "url"]} /> },
     { id: "memory", label: "记忆", cat: "notice", body: <DeferredPanel<MemoryEntry> title="记忆" futureTool="GET /api/memory" fields={["id", "text", "tags", "created_at"]} /> },
   ];

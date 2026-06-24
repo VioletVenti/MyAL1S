@@ -88,3 +88,14 @@ async def materials(request: Request) -> dict:
 async def videos(request: Request) -> dict:
     """Course replay video listings, read-only."""
     return await _cached(request, "videos", "list_videos")
+
+
+@router.get("/treehole")
+async def treehole(request: Request, page: int = 1, limit: int = 20) -> dict:
+    """北大树洞首页帖子流 (read-only, no LLM). Calls the treehole_list MCP tool
+    directly. Note: treehole has its own auth (IAAA OTP → JWT) + a one-time令牌验证
+    gate (code=40002); on needs_otp the envelope surfaces it so the frontend can
+    prompt for login. Treehole is NOT cached (per-request JWT session)."""
+    return await _gateway(request).call_tool(
+        "treehole_list", {"page": page, "limit": limit}
+    )
