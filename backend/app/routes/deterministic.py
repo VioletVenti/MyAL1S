@@ -14,6 +14,7 @@ last good snapshot so the dashboard still shows yesterday's data (marked
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -88,3 +89,27 @@ async def materials(request: Request) -> dict:
 async def videos(request: Request) -> dict:
     """Course replay video listings, read-only."""
     return await _cached(request, "videos", "list_videos")
+
+
+@router.get("/treehole")
+async def treehole(request: Request) -> dict:
+    """北大树洞通知（read-only, no LLM）—— 轻量：未读数 + 最近通知。需要树洞自己的
+    认证（IAAA OTP → JWT + 令牌验证门）。不像教学网路由那样 snapshot-cache（树洞
+    per-request JWT session，无快照语义）；失败时返 error 而非假 ok。"""
+    gw = _gateway(request)
+    unread, messages = await asyncio.gather(
+        gw.call_tool("treehole_unread", {"message_type": "int_msg"}),
+        gw.call_tool("treehole_messages", {"message_type": "int_msg", "page": 1}),
+        return_exceptions=True,
+    )
+    # 任一返回 needs_otp / needs_treehole_token → 透传该状态。
+    for r in (unread, messages):
+        if isinstance(r, dict) and r.get("status") in ("needs_otp", "needs_treehole_token"):
+            return r
+    # 任一是 Exception → 真 error（不假 ok）。
+    for r in (unread, messages):
+        if isinstance(r, Exception):
+            return {"status": "error", "message": f"树洞查询失败: {r}"}
+    count = unread.get("data", {}).get("count", 0) if isinstance(unread, dict) else 0
+    msgs = messages.get("data", {}).get("messages", []) if isinstance(messages, dict) else []
+    return {"status": "ok", "data": {"unread": count, "messages": msgs}}

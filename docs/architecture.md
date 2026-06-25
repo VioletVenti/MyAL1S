@@ -280,21 +280,29 @@ post-P0 roadmap. (P1 added the Store + Composer + dashboard routes; P2 added the
 PermissionGate + the 交作业 write slice — see "Write path (P2)" above. External
 forums, credential encryption, and streaming chat remain.)
 
-## Deferred sources (P3) — interfaces designed, not yet built
+## 北大树洞 (P3) — IMPLEMENTED
 
-The P1 dashboard renders placeholder "待接入 (P3)" panels for four data sources
-pku3b / the backend cannot feed yet. Their **GUI + typed data contracts are in
-place** (types in `frontend/src/api.ts`; the contract documented below) so P3
-implements a scraper/endpoint against a fixed shape — no frontend rework. There
-is deliberately **no dead backend route and no stub MCP tool** for these today.
+树洞 (treehole.pku.edu.cn, PKU Helper app) is now fully integrated. 11 MCP tools
+on the `pku3b` server: 9 read-only (list/get/list_comments/my_list/history/
+attention/search/messages/unread) + 2 write (post/comment, `read_only:false`,
+gated by PermissionGate). The frontend shows a lightweight notification panel
+(unread count + recent messages) instead of crawling the full post list; search
+is available to the agent via `treehole_search`.
 
-| Source | P3 will be | Contract | Defined in |
-|--------|-----------|----------|-----------|
-| 教务通知 (dean's office) | a **future MCP tool** on `pku3b` | `get_dean_updates` → `DeanUpdate` | `docs/mcp-protocol.md` |
-| 北大树洞 (treehole) | **future MCP tools** on `pku3b` (IAAA reuse) | `list_treehole_posts` / `get_treehole_post` → `TreeholePost` | `docs/mcp-protocol.md` |
-| 文档库 (personal docs) | a **future backend feature** (not pku3b/MCP) | `GET /api/docs/search` → `DocResult` | here |
-| 记忆 (long-term agent memory) | a **future backend feature** | `GET /api/memory` → `MemoryEntry` | here |
+Auth model (HAR-proven, see `docs/mcp-protocol.md`):
+- IAAA OTP (appid `PKU Helper`) → `/cas_iaaa_login` (root path) →
+  `/web/iaaa_success?token=<JWT>` → Bearer JWT.
+- API: `Authorization: Bearer <JWT>` + `uuid` + `userAgent:pku_web` headers.
+- First-use gate (code=40002): `needs_treehole_token` — a令牌验证 gate
+  (`/api/login_iaaa_check_token`), distinct from IAAA login OTP.
 
-The doc-library and memory endpoints will be **new backend routes**, added
-alongside `routes/dashboard.py` when P3 builds them (they are not teaching-network
-data, so they do not belong on the `pku3b` MCP server).
+`auto` matrix level is now live: a group set to `auto` dispatches immediately
+(no pending approval) — treehole posting (file-less write) is the first user.
+
+## Deferred sources — not yet built
+
+| Source | Status | Contract | Defined in |
+|--------|--------|----------|-----------|
+| 教务通知 (dean's office) | future MCP tool | `get_dean_updates` → `DeanUpdate` | `docs/mcp-protocol.md` |
+| 文档库 (personal docs) | future backend route | `GET /api/docs/search` → `DocResult` | here |
+| 记忆 (long-term agent memory) | future backend route | `GET /api/memory` → `MemoryEntry` | here |

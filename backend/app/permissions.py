@@ -49,13 +49,16 @@ log = logging.getLogger("myal1s.permissions")
 
 # The semantic groups a write tool may belong to. Drives the settings page; P2
 # has one, P3 adds more (treehole_post, course_election, …) here.
-KNOWN_GROUPS = ("assignment_submission",)
+# P3: treehole write groups added.
+KNOWN_GROUPS = ("assignment_submission", "treehole_post", "treehole_comment")
 
 # Write tools the gate knows how to dispatch (each maps to a branch in _dispatch).
-_WRITE_TOOLS = {"submit_assignment"}
+_WRITE_TOOLS = {"submit_assignment", "treehole_post", "treehole_comment"}
 
-# Valid stored matrix levels. `auto` is reserved for P3 and rejected for now.
-_VALID_LEVELS = (PERMISSION_DENY, PERMISSION_CONFIRM)
+# Valid stored matrix levels. P3 promotes `auto` to a real level (file-less
+# writes like treehole posting can run without confirmation if the user opts in).
+PERMISSION_AUTO = "auto"
+_VALID_LEVELS = (PERMISSION_DENY, PERMISSION_CONFIRM, PERMISSION_AUTO)
 
 
 def _now() -> str:
@@ -124,7 +127,9 @@ class PermissionGate:
 
         - ``deny``  → log a ``denied`` row, return a ``denied`` envelope (no dispatch);
         - ``confirm`` (default) → insert a ``pending`` row, return ``pending_approval``
-          so the agent can tell the user to confirm in 待审批. agent.run then ends.
+          so the agent can tell the user to confirm in the chat banner. agent.run ends.
+        - ``auto`` (P3) → dispatch IMMEDIATELY (no pending), write an executed/failed
+          audit row, return the result envelope. agent.run continues with the real result.
 
         Returns the envelope the agent tool forwards to the LLM.
         """
@@ -138,7 +143,17 @@ class PermissionGate:
                 status=APPROVAL_DENIED, decided_at=_now(),
             )
             return {"status": "denied", "message": "该操作已被权限矩阵禁止。"}
-        # confirm (auto is not settable in P2)
+        if level == PERMISSION_AUTO:
+            # auto: dispatch immediately, write audit row, return real result.
+            envelope = await self._dispatch(tool_name, args)
+            to_status = APPROVAL_EXECUTED if envelope.get("status") == "ok" else APPROVAL_FAILED
+            await self._store.create_approval(
+                tool_name=tool_name, group_name=group_name, args=args, summary=summary,
+                filename=filename, conversation_id=conversation_id,
+                status=to_status, result=envelope, decided_at=_now(),
+            )
+            return envelope
+        # confirm (default): insert pending, agent.run ends.
         aid = await self._store.create_approval(
             tool_name=tool_name, group_name=group_name, args=args, summary=summary,
             filename=filename, conversation_id=conversation_id, status=APPROVAL_PENDING,
@@ -147,7 +162,7 @@ class PermissionGate:
             "status": "pending_approval",
             "approval_id": aid,
             "summary": summary,
-            "hint": "请在「待审批」面板确认后执行。",
+            "hint": "请在对话框上方的审批横条确认后执行。",
         }
 
     # ---- user decision on a pending approval (agent path) -----------------
@@ -231,4 +246,8 @@ class PermissionGate:
                 "submit_assignment",
                 {"assignment_id": assignment_id, "file_path": str(path)},
             )
+        if tool_name in ("treehole_post", "treehole_comment"):
+            # treehole writes are file-less — forward args directly (no file_id resolution).
+            log.info("dispatching %s args=%s", tool_name, args)
+            return await self._gateway.call_tool(tool_name, args)
         return {"status": "error", "message": f"未知的写工具: {tool_name}"}

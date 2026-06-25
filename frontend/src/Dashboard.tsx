@@ -15,13 +15,13 @@ import {
   type Material,
   type MemoryEntry,
   type Permissions,
-  type TreeholePost,
   type Video,
   fetchAnnouncements,
   fetchAssignments,
   fetchGrades,
   fetchMaterials,
   fetchPermissions,
+  fetchTreehole,
   fetchVideos,
   setPermission,
   submitAssignment,
@@ -275,13 +275,50 @@ function GradeList({ items }: { items: Grade[] }) {
   );
 }
 
+/** 树洞通知面板 (P3) —— 轻量替代全量爬取。显示关注的帖子未读数 + 最近通知。
+ *  搜索交给 agent（treehole_search 工具）。 */
+function TreeholePanel({ refreshKey }: { refreshKey: number }) {
+  const { env, loading, reload } = useEnvelope(() => fetchTreehole(), { cacheKey: "treehole" });
+  useRefresh(refreshKey, reload);
+  return (
+    <Panel title="北大树洞" loading={loading} onReload={reload} category="notice">
+      <EnvelopeBody
+        env={env}
+        loading={loading}
+        renderData={(d) => (
+          <>
+            {d.unread > 0 && (
+              <p className="notice">
+                🔔 {d.unread} 条未读通知（关注的帖子有新动态）
+              </p>
+            )}
+            {d.messages.length === 0 ? (
+              <p className="muted">没有新通知。用对话问助手「帮我搜树洞里关于…」来查找帖子。</p>
+            ) : (
+              <ul className="list treehole">
+                {d.messages.map((m, i) => (
+                  <li key={i}>
+                    <span className="title">{m.description}</span>
+                    {m.pid && <span className="muted"> · pid:{m.pid}</span>}
+                    {m.time && <span className="ddl">{fmtDate(m.time, false)}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      />
+    </Panel>
+  );
+}
+
 export type DashboardView = "main" | "directory" | "settings";
 
 function groupLabel(group: string): string {
   return ({ assignment_submission: "交作业" } as Record<string, string>)[group] ?? group;
 }
 
-/** 权限矩阵设置 (P2). Per semantic group: confirm (default) / deny. auto is P3. */
+/** 权限矩阵设置 (P2/P3). Per semantic group: confirm (default) / deny / auto. */
 export function SettingsPanel({ refreshKey }: { refreshKey: number }) {
   const [perms, setPerms] = useState<Permissions | null>(null);
   const [loading, setLoading] = useState(true);
@@ -315,8 +352,7 @@ export function SettingsPanel({ refreshKey }: { refreshKey: number }) {
       ) : (
         <div className="matrix">
           <p className="muted">
-            每个写操作可设为「需确认」（默认，每次执行前由你在「待审批」确认）或「禁止」。
-            「自动」留待 P3（用于文件无关的写，如发帖）。
+            每个写操作可设为「需确认」（默认）、「禁止」、或「自动」（agent 直接执行，无需确认）。
           </p>
           <table className="matrix-table">
             <thead>
@@ -339,8 +375,8 @@ export function SettingsPanel({ refreshKey }: { refreshKey: number }) {
                       >
                         <option value="confirm">需确认（默认）</option>
                         <option value="deny">禁止</option>
-                        <option value="auto" disabled>
-                          自动（P3）
+                        <option value="auto">
+                          自动（agent 直接执行，无需确认）
                         </option>
                       </select>
                     </td>
@@ -364,53 +400,16 @@ type DirModule = {
   body: ReactNode;
 };
 
-/** The dashboard's connection gate. When the session isn't established we show
- *  ONE notice (connecting / not-connected) instead of mounting every panel — each
- *  panel would otherwise cold-crawl pku3b to discover needs_otp and spin 加载中.
- *  The LoginBar (always visible at the top of the app) handles the actual login;
- *  once connected, App flips `connected` true and the real panels mount (warm).
- *
- *  Three states, deliberately distinct so the post-login "connected but data not
- *  crawled yet" window never reads as "未连接":
- *  - null  → 正在连接教学网（initial check, or re-checking right after an OTP submit）
- *  - false → 教学网未连接，请登录（the only place "未连接" appears）
- *  - true  → (panels mount; this gate isn't shown) */
-function ConnectionGate({ connected }: { connected: boolean | null }) {
-  return (
-    <Panel title={connected === false ? "未连接教学网" : "正在连接教学网"} category="notice">
-      {connected === null ? (
-        <p className="muted">正在连接教学网，登录后即开始获取课表 / 作业 / 成绩…</p>
-      ) : (
-        <p className="notice">
-          教学网未连接。请在页面顶部的登录条输入手机令牌（OTP）登录一次，之后即可正常查看课表 / 作业 / 成绩等。
-        </p>
-      )}
-    </Panel>
-  );
-}
-
 export default function Dashboard({
   view,
   refreshKey,
   bump,
-  connected,
 }: {
   view: DashboardView;
   refreshKey: number;
   bump: () => void;
-  connected: boolean | null;
 }): ReactNode {
   const [selected, setSelected] = useState("assignments");
-
-  // Session gate: until connected, show a single notice for either view. This
-  // avoids every panel cold-crawling pku3b and spinning on a cold load.
-  if (connected !== true) {
-    return (
-      <div className="dashboard main-view">
-        <ConnectionGate connected={connected} />
-      </div>
-    );
-  }
 
   if (view === "main") {
     return (
@@ -430,10 +429,10 @@ export default function Dashboard({
     { id: "materials", label: "课程材料", cat: "material", body: <MaterialsPanel refreshKey={refreshKey} /> },
     { id: "videos", label: "课程回放", cat: "video", body: <VideosPanel refreshKey={refreshKey} /> },
     { id: "grades", label: "成绩", cat: "grade", body: <GradesPanel refreshKey={refreshKey} /> },
+    { id: "treehole", label: "北大树洞", cat: "notice", body: <TreeholePanel refreshKey={refreshKey} /> },
   ];
   const deferred: DirModule[] = [
     { id: "dean", label: "教务通知", cat: "notice", body: <DeferredPanel<DeanUpdate> title="教务通知" futureTool="MCP: get_dean_updates" fields={["id", "title", "time", "category", "url", "summary"]} /> },
-    { id: "treehole", label: "北大树洞", cat: "notice", body: <DeferredPanel<TreeholePost> title="北大树洞" futureTool="MCP: list_treehole_posts / get_treehole_post" fields={["id", "title", "body", "time", "tags", "reply_count"]} /> },
     { id: "docs", label: "文档库", cat: "material", body: <DeferredPanel<DocResult> title="文档库" futureTool="GET /api/docs/search" fields={["id", "title", "course", "kind", "snippet", "url"]} /> },
     { id: "memory", label: "记忆", cat: "notice", body: <DeferredPanel<MemoryEntry> title="记忆" futureTool="GET /api/memory" fields={["id", "text", "tags", "created_at"]} /> },
   ];

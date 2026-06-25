@@ -56,22 +56,42 @@ server-local path. The gate resolves the opaque `file_id` → absolute `file_pat
 just-in-time at dispatch. See `docs/architecture.md` (Seam 7) and
 `docs/development.md` ("How to add a write tool").
 
-## Future tools (P3 — NOT yet implemented)
+## Future tools (P3)
 
-These are **contracts the P1 dashboard's 教务通知 / 北大树洞 placeholders are
-shaped against**. They are not implemented today (no code path), but documented
-here so the P3 scraper lands against a fixed shape. They will be added to the
-`pku3b` MCP server following the standard "How to add a new MCP tool" loop.
+### 北大树洞 — IMPLEMENTED (P3 Increment S+A, read-only)
+
+Auth: IAAA OTP (appid `PKU Helper`) → `/cas_iaaa_login` (root) →
+`/web/iaaa_success?token=<JWT>` (Bearer). API base `/chapi/api/v3/`. Headers:
+`Authorization: Bearer <JWT>` + `uuid` + `userAgent: pku_web`. First-use gate
+(code=40002) is a 令牌验证 (not IAAA OTP) → `status: needs_treehole_token`.
+See `docs/architecture.md` + memory `myal1s-p3-treehole-protocol` for the full
+protocol.
+
+| name | arguments | `data` payload |
+|------|-----------|----------------|
+| `treehole_list` | `{ page?, limit?, otp? }` | `{ holes: [{pid, text, time, timestamp, reply, likenum, tag}] }` |
+| `treehole_get` | `{ pid: int, otp? }` | `{ pid, text, time, timestamp, reply, likenum, tag }` (single hole) |
+| `treehole_list_comments` | `{ pid: int, page?, otp? }` | `{ holes: [...] }` (floors) |
+| `treehole_my_list` | `{ page?, otp? }` | `{ holes: [...] }` |
+| `treehole_history` | `{ page?, otp? }` | `{ holes: [...] }` |
+| `treehole_attention` | `{ page?, otp? }` | `{ holes: [...] }` (关注的帖子) |
+| `treehole_search` | `{ keyword: string, page?, otp? }` | `{ holes: [...] }` (关键词搜索) |
+| `treehole_messages` | `{ message_type?, page?, otp? }` | `{ messages: [{description, pid, time}] }` |
+| `treehole_unread` | `{ message_type?, otp? }` | `{ count: int }` |
+| `treehole_post` | `{ text: string, tag?, otp? }` | `{ pid: int, posted: true }` — **写** (read_only:false, 经 PermissionGate) |
+| `treehole_comment` | `{ pid: int, text: string, otp? }` | `{ cid: int, posted: true }` — **写** (read_only:false, 经 PermissionGate) |
+
+The 9 read tools are `read_only: true`. `treehole_post`/`treehole_comment` are
+`read_only: false` — side-effecting execution primitives, gated by the backend
+PermissionGate (confirm = pending approval; auto = direct dispatch). `pid` is a
+stable per-post integer identity. `needs_treehole_token` (code=40002) is a
+distinct gate — the令牌验证, not IAAA OTP login.
+
+### 教务通知 — NOT yet implemented
 
 | name (planned) | arguments | `data` payload |
 |------|-----------|----------------|
 | `get_dean_updates` | `{}` | `{ updates: [{id, title, time, category, url, summary}] }` — dean's-office notices |
-| `list_treehole_posts` | `{ tag?: string, limit?: int }` | `{ posts: [{id, title, body, author, time, tags[], reply_count}] }` — 北大树洞 (IAAA reuse) |
-| `get_treehole_post` | `{ id: string }` | `{ post: {id, title, body, author, time, tags[], reply_count} }` |
-
-All three are planned read-only. Authentication for 树洞 is expected to reuse
-the IAAA trusted-device flow already established by the `login` tool; the exact
-appid/endpoints need capture-and-reverse-engineering (TBD, plan §7).
 
 ## Result envelope
 

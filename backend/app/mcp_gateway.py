@@ -56,21 +56,24 @@ SYSTEM_PROMPT = """\
 你是「MyAL1S」——北京大学校园信息终端助手。
 
 规则:
-- 只回答与北大教学网 / 校园信息相关的问题(课表、作业、成绩、公告等)。
+- 回答与北大教学网 / 校园信息相关的问题(课表、作业、成绩、公告、树洞等)。
 - 任何具体数据都必须通过调用工具获取, 绝不凭空编造、猜测或记忆。
 - 工具返回的 JSON 信封里 status 字段:
   - "ok": 使用 data 字段作答。
   - "needs_otp": 提示用户点击页面顶部的「连接教学网」输入手机令牌 (OTP) 登录一次,
     之后即可正常查询。**不要**自己调用 login 工具, 也不要编造 OTP——OTP 只能由用户提供。
+  - "needs_treehole_token": 树洞首次使用需令牌验证。告知用户在树洞面板完成一次令牌验证。
   - "error": 简要说明出错原因, 建议用户重试或先登录。
-  - "pending_approval": 你请求的写操作（如交作业）已发起, 但需要用户在「待审批」面板
-    确认后才会真正执行。请告诉用户去该面板确认; **同一作业在确认结果出来前不要重复请求**。
+  - "pending_approval": 你请求的写操作（如交作业、树洞发帖）已发起, 需用户在对话框
+    上方的审批横条确认后才真正执行。告知用户去确认; **同一操作在结果出来前不要重复请求**。
   - "denied": 该操作被权限矩阵禁止, 如实告知用户（可在「设置」页调整）。
 - 用中文、简洁地聚焦用户的问题作答; 涉及作业 DDL 时按时间排序并提示紧迫的项。
-- 交作业: 调用 submit_assignment 时用用户上传附件得到的 **file_id**（不是文件路径,
- 你拿不到也不应猜测服务器路径）。提交是否成功以 list_assignments 的结果或「待审批」
- 面板为准, **不要凭记忆断言已交成功**。
+- 交作业: 调用 submit_assignment 时用用户上传附件得到的 **file_id**（不是文件路径）。
+- 树洞: 可用 treehole_search 搜帖子、treehole_list 看首页、treehole_get 看详情、
+  treehole_list_comments 看楼层、treehole_messages 看通知。发帖用 treehole_post、
+  回复用 treehole_comment（均需用户确认, 除非设为 auto）。搜索时用关键词精准匹配。
 """
+
 
 
 class McpGateway:
@@ -168,11 +171,44 @@ class McpGateway:
                 filename=filename,
             )
 
+        @write_ts.tool_plain
+        async def treehole_post(text: str, tag: str = "") -> dict:
+            """在树洞发布一条新帖。需用户确认（除非已设为 auto）。
+            只在用户明确要求「帮我发个帖子」时调用。
+
+            Args:
+                text: 帖子正文。
+                tag: 可选标签。
+            """
+            tag_val = tag.strip() or None
+            return await gate.create_approval(
+                tool_name="treehole_post",
+                group_name="treehole_post",
+                args={"text": text, "tag": tag_val} if tag_val else {"text": text},
+                summary=f"树洞发帖: {text[:40]}",
+            )
+
+        @write_ts.tool_plain
+        async def treehole_comment(pid: int, text: str) -> dict:
+            """回复树洞某帖的楼层。需用户确认（除非已设为 auto）。
+
+            Args:
+                pid: 目标帖子 pid。
+                text: 回复正文。
+            """
+            return await gate.create_approval(
+                tool_name="treehole_comment",
+                group_name="treehole_comment",
+                args={"pid": pid, "text": text},
+                summary=f"树洞回复 pid={pid}: {text[:40]}",
+            )
+
         # Keep references for the structural test (proves the filter, not the
-        # registry, is what hides the primitive).
+        # registry, is what hides the primitives).
+        _hidden = {"submit_assignment", "treehole_post", "treehole_comment"}
         self._filtered = FilteredToolset(
             wrapped=self._server,
-            filter_func=lambda _ctx, td: td.name != "submit_assignment",
+            filter_func=lambda _ctx, td: td.name not in _hidden,
         )
         self._write_ts = write_ts
         self._agent = Agent(
